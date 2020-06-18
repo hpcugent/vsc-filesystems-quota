@@ -89,7 +89,7 @@ class TestProcessing(TestCase):
 
         client = mock.MagicMock()
 
-        user_map = mock.MagicMock()
+        user_map = {}
         UserInfo = namedtuple("UserInfo", ['pw_name'])
         mock_pwd.getpwuid.return_value = UserInfo(pw_name='vsc40075')
         quota_map = {
@@ -98,7 +98,7 @@ class TestProcessing(TestCase):
         }
 
         tools.process_user_quota(
-            storage, None, storage_name, None, quota_map, user_map, client, dry_run=False, institute=GENT
+            storage, None, storage_name, None, quota_map, { '2540075': 'vsc40075' }, client, dry_run=False, institute=GENT
         )
 
         self.assertEqual(mock_django_pusher.call_count, 2)
