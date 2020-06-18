@@ -35,6 +35,7 @@ import mock
 import vsc.filesystem.quota.tools as tools
 import vsc.config.base as config
 
+from collections import namedtuple
 from vsc.config.base import VSC_DATA, GENT
 from vsc.filesystem.quota.entities import QuotaUser, QuotaFileset, QuotaInformation
 from vsc.filesystem.quota.tools import DjangoPusher, determine_grace_period, QUOTA_USER_KIND
@@ -74,7 +75,8 @@ class TestAuxiliary(TestCase):
 class TestProcessing(TestCase):
 
     @mock.patch.object(DjangoPusher, 'push_quota')
-    def test_process_user_quota_no_store(self, mock_django_pusher):
+    @mock.patch('vsc.filesystem.quota.tools.pwd')
+    def test_process_user_quota_no_store(self, mock_pwd, mock_django_pusher):
 
         storage_name = VSC_DATA
         item = 'vsc40075'
@@ -87,13 +89,12 @@ class TestProcessing(TestCase):
 
         client = mock.MagicMock()
 
+        user_map = mock.MagicMock()
+        UserInfo = namedtuple("UserInfo", ['pw_name'])
+        mock_pwd.getpwuid.return_value = UserInfo(pw_name='vsc40075')
         quota_map = {
             '2540075': quota,
             '2510042': None,  # should be skipped
-        }
-        user_map = {
-            2540075: 'vsc40075',
-            2510042: 'vsc10042',
         }
 
         tools.process_user_quota(
