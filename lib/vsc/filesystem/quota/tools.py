@@ -184,7 +184,6 @@ def process_user_quota(storage, gpfs, storage_name, filesystem, quota_map, user_
     """
     del filesystem
     del gpfs
-    del user_map
 
     exceeding_users = []
     path_template = storage.path_templates[institute][storage_name]
@@ -201,12 +200,15 @@ def process_user_quota(storage, gpfs, storage_name, filesystem, quota_map, user_
                 continue
 
             try:
-                user_name = pwd.getpwuid(int(user_id)).pw_name
+                user_name = user_map.get(user_id, pwd.getpwuid(int(user_id)).pw_name)
             except KeyError:
                 logging.debug("Cannot find user ID %s in the user mapping", user_id)
                 continue
             if not user_name.startswith('vsc'):
                 continue
+
+            if user_id not in user_map:
+                user_map[user_id] = user_name
 
             fileset_name = path_template['user'](user_name)[1]
 
