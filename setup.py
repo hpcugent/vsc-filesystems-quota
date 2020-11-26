@@ -34,6 +34,7 @@ PACKAGE = {
         'vsc-config >= 3.0.0',
         'vsc-filesystems >= 1.0.1',
         'vsc-utils >= 2.0.0',
+        'kafka-python'
     ],
     'tests_require': ['mock'],
 }
