@@ -226,10 +226,12 @@ def process_user_quota(vsc, pusher, quota, user_map, institute=GENT, dry_run=Fal
 
         user_institute = vsc.user_id_to_institute(int(user_id))
         if user_institute != institute:
+            logging.info("Wrong institute")
             continue
 
         user_name = user_map.get(int(user_id), None)
         if not user_name:
+            logging.info("Username not found")
             continue
 
         fileset_re = '^(vsc[1-4]|%s|%s)' % (
