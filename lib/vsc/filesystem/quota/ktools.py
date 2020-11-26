@@ -241,7 +241,7 @@ def process_user_quota(vsc, pusher, quota, user_map, institute=GENT):
             pusher.push_quota(user_name, fileset, quota)
 
 
-def process_fileset_quota(vsc, pusher, quota, user_map, institute=GENT):
+def process_fileset_quota(pusher, quota, institute=GENT):
 
     logging.info("Logging fileset quota to account page")
     logging.debug("Considering the following quota items for pushing: %s", quota)
