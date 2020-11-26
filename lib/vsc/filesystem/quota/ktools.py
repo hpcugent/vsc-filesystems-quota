@@ -24,6 +24,7 @@ pushed to the AP.
 import glob
 import logging
 import os
+import pwd
 import re
 
 from collections import defaultdict, namedtuple
@@ -31,7 +32,7 @@ from datetime import datetime
 from kafka import KafkaProducer, KafkaConsumer
 
 from vsc.accountpage.client import AccountpageClient
-from vsc.config.base import GENT_PRODUCTION_COMPUTE_CLUSTERS, STORAGE_SHARED_SUFFIX, VSC
+from vsc.config.base import GENT_PRODUCTION_COMPUTE_CLUSTERS, STORAGE_SHARED_SUFFIX, VscStorage
 from vsc.config.base import VSC_SCRATCH_PHANPY, VSC_SCRATCH_ARCANINE, VSC_SCRATCH_KYUKON, VSC_DATA, VSC_HOME
 from vsc.config.base import VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE
 from vsc.config.base import VscStorage, GENT
@@ -64,15 +65,6 @@ UsageInformation = namedtuple('UsageInformation', [
     'files_doubt',  # the inodes GPFS is not sure about
     'files_expired',  # tuple (boolean, grace period expressed in seconds)
 ])
-
-# FIXME: pick a better place to do this translation
-fsmap = {
-    "scratchphanpy": VSC_SCRATCH_PHANPY,
-    "kyukonscratch": VSC_SCRATCH_KYUKON,
-    "arcaninescratch": VSC_SCRATCH_ARCANINE,
-    "kyukondata": VSC_DATA,
-    "kyukonhome": VSC_HOME,
-}
 
 
 class DjangoPusher(object):
@@ -262,7 +254,7 @@ class QuotaSync(NrpeCLI):
 
         return dict(map(lambda kv: kv.split('='), self.options.ssl + self.options.sasl))
 
-    def consume(self, storage, dry_run):
+    def consume(self, fsmap, storage, dry_run):
         """Consume job info from kafka"""
 
         kwargs = self.get_kafka_args()
@@ -331,16 +323,19 @@ class QuotaSync(NrpeCLI):
         client = AccountpageClient(token=self.opts.options.access_token)
 
         vsc = VSC()
+        vsc_storage = VscStorage()
+        fsmap = dict([(vsc_storage[k].filesystem, k) for k in vsc_storage.keys() if k.startswith('VSC')])
+
         user_id_map = map_uids_to_names()  # is this really necessary?
         storage = VscStorage()
 
-        processed_quota = self.consume(storage, dry_run)
+        processed_quota = self.consume(fsmap, storage, dry_run)
 
         for storage_name in self.opts.options.storage:
 
             if storage_name in processed_quota[UsageType.UserUsage]:
                 with DjangoPusher(storage_name, client, UsageType.UserUsage, dry_run) as pusher:
-                    process_user_quota(vsc, pusher, processed_quota[UsageType.UserUsage][storage_name])
+                    process_user_quota(vsc, pusher, processed_quota[UsageType.UserUsage][storage_name], user_id_map)
 
             if storage_name in processed_quota[UsageType.FilesetUsage]:
                 with DjangoPusher(storage_name, client, UsageType.FilesetUsage, dry_run) as pusher:
