@@ -32,7 +32,7 @@ from datetime import datetime
 from kafka import KafkaProducer, KafkaConsumer
 
 from vsc.accountpage.client import AccountpageClient
-from vsc.config.base import GENT_PRODUCTION_COMPUTE_CLUSTERS, STORAGE_SHARED_SUFFIX, VscStorage
+from vsc.config.base import GENT_PRODUCTION_COMPUTE_CLUSTERS, STORAGE_SHARED_SUFFIX, VscStorage, VSC
 from vsc.config.base import VSC_SCRATCH_PHANPY, VSC_SCRATCH_ARCANINE, VSC_SCRATCH_KYUKON, VSC_DATA, VSC_HOME
 from vsc.config.base import VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE
 from vsc.config.base import VscStorage, GENT
