@@ -8,9 +8,20 @@
 # the Flemish Research Foundation (FWO) (http://www.fwo.be/en)
 # and the Department of Economy, Science and Innovation (EWI) (http://www.ewi-vlaanderen.be/en).
 #
-# https://github.ugent.be/hpcugent/vsc-filesystems-quota
+# https://github.com/hpcugent/vsc-filesystems-quota
 #
-# All rights reserved.
+# vsc-filesystems-quota is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Library General Public License as
+# published by the Free Software Foundation, either version 2 of
+# the License, or (at your option) any later version.
+#
+# vsc-filesystems-quota is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
+# GNU Library General Public License for more details.
+#
+# You should have received a copy of the GNU Library General Public License
+# along with vsc-filesystems-quota. If not, see <http://www.gnu.org/licenses/>.
 #
 """
 Tools to sync quota from kafka to the AP
@@ -21,26 +32,20 @@ pushed to the AP.
 @author: Andy Georges (Ghent University)
 """
 
-import glob
 import logging
-import os
 import pwd
 import re
 
 from collections import defaultdict, namedtuple
-from datetime import datetime
-from kafka import KafkaProducer, KafkaConsumer
+from kafka import KafkaConsumer
 
 from vsc.accountpage.client import AccountpageClient
-from vsc.config.base import GENT_PRODUCTION_COMPUTE_CLUSTERS, STORAGE_SHARED_SUFFIX, VscStorage, VSC
-from vsc.config.base import VSC_SCRATCH_PHANPY, VSC_SCRATCH_ARCANINE, VSC_SCRATCH_KYUKON, VSC_DATA, VSC_HOME
+from vsc.config.base import STORAGE_SHARED_SUFFIX, VscStorage, VSC, GENT
 from vsc.config.base import VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE
-from vsc.config.base import VscStorage, GENT
 from vsc.filesystem.quota.tools import QuotaException
-from vsc.utils.run import asyncloop, async_run
 from vsc.utils.script_tools import NrpeCLI
 
-from enu34 import Enum
+from enum import Enum
 import json
 
 GPFS_GRACE_REGEX = re.compile(
@@ -293,16 +298,16 @@ class QuotaSync(NrpeCLI):
             files_expired = determine_grace_period(quota["files_expired"])
 
             usage = UsageInformation(
-                used = quota["block_usage"] // replication_factor,
-                soft = quota["block_soft"] // replication_factor,
-                hard = quota["block_hard"] // replication_factor,
-                doubt = quota["block_doubt"] // replication_factor,
-                expired = block_expired,
-                files_used = quota["files_usage"],
-                files_soft = quota["files_soft"],
-                files_hard = quota["files_hard"],
-                files_doubt = quota["files_doubt"],
-                files_expired = files_expired,
+                used=quota["block_usage"] // replication_factor,
+                soft=quota["block_soft"] // replication_factor,
+                hard=quota["block_hard"] // replication_factor,
+                doubt=quota["block_doubt"] // replication_factor,
+                expired=block_expired,
+                files_used=quota["files_usage"],
+                files_soft=quota["files_soft"],
+                files_hard=quota["files_hard"],
+                files_doubt=quota["files_doubt"],
+                files_expired=files_expired,
             )
             try:
                 processed_quota[quota["kind"]][storage_name].append((
