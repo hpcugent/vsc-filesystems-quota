@@ -36,6 +36,7 @@ from vsc.config.base import GENT_PRODUCTION_COMPUTE_CLUSTERS, STORAGE_SHARED_SUF
 from vsc.config.base import VSC_SCRATCH_PHANPY, VSC_SCRATCH_ARCANINE, VSC_SCRATCH_KYUKON, VSC_DATA, VSC_HOME
 from vsc.config.base import VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE
 from vsc.config.base import VscStorage, GENT
+from vsc.filesystem.quota.tools import QuotaException
 from vsc.utils.run import asyncloop, async_run
 from vsc.utils.script_tools import NrpeCLI
 
