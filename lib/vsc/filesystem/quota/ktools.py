@@ -240,6 +240,26 @@ def process_user_quota(vsc, pusher, quota, user_map, institute=GENT):
         if re.search(fileset_re, fileset):
             pusher.push_quota(user_name, fileset, quota)
 
+
+def process_fileset_quota(vsc, pusher, quota, user_map, institute=GENT):
+
+    logging.info("Logging fileset quota to account page")
+    logging.debug("Considering the following quota items for pushing: %s", quota)
+
+    for (fileset, quota) in quota:
+
+        if not fileset.startswith(VO_PREFIX_BY_SITE[institute]):
+            continue
+
+        if fileset.startswith(VO_SHARED_PREFIX_BY_SITE[institute]):
+            vo_name = fileset.replace(VO_SHARED_PREFIX_BY_SITE[institute], VO_PREFIX_BY_SITE[institute])
+            shared = True
+        else:
+            vo_name = fileset
+            shared = False
+
+        pusher.push_quota(vo_name, fileset, quota, shared=shared)
+
 class QuotaSync(NrpeCLI):
 
     CLI_OPTIONS = {
@@ -280,6 +300,11 @@ class QuotaSync(NrpeCLI):
             UsageType.UserUsage: defaultdict(list),
             UsageType.FilesetUsage: defaultdict(list),
         }
+
+        if dry_run:
+            # FIXME: should suffice to just not commit, but needs to be checked
+            logging.info("Dry run, not actually consuming messages")
+            return
 
         for msg in consumer:
 
