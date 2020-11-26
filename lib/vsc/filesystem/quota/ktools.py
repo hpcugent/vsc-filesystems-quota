@@ -151,10 +151,11 @@ class DjangoPusher(object):
         elif self.kind == UsageType.FilesetUsage:
             params['vo'] = owner
 
-        if shared:
-            self.push(self.storage_name_shared, params)
-        else:
-            self.push(self.storage_name, params)
+        if not self.dry_run:
+            if shared:
+                self.push(self.storage_name_shared, params)
+            else:
+                self.push(self.storage_name, params)
 
     def _push(self, storage_name, payload):
         """Does the actual pushing to the REST API"""
@@ -217,7 +218,7 @@ def determine_grace_period(grace_string):
     return expired
 
 
-def process_user_quota(vsc, pusher, quota, user_map, institute=GENT, dry_run=False):
+def process_user_quota(vsc, pusher, quota, user_map, institute=GENT):
 
     logging.info("Logging user quota to account page")
     logging.debug("Considering the following quota items for pushing: %s", quota)
@@ -226,24 +227,18 @@ def process_user_quota(vsc, pusher, quota, user_map, institute=GENT, dry_run=Fal
 
         user_institute = vsc.user_id_to_institute(int(user_id))
         if user_institute != institute:
-            logging.info("Wrong institute")
             continue
 
         user_name = user_map.get(int(user_id), None)
         if not user_name:
-            logging.info("Username not found")
             continue
 
         fileset_re = '^(vsc[1-4]|%s|%s)' % (
             VO_PREFIX_BY_SITE[institute],
             VO_SHARED_PREFIX_BY_SITE[institute])
 
-        logging.info("Boe")
-
         if re.search(fileset_re, fileset):
             pusher.push_quota(user_name, fileset, quota)
-        else:
-            logging.info("fileset does not match regex")
 
 class QuotaSync(NrpeCLI):
 
@@ -347,7 +342,13 @@ class QuotaSync(NrpeCLI):
 
             if storage_name in processed_quota[UsageType.UserUsage]:
                 with DjangoPusher(storage_name, client, UsageType.UserUsage, dry_run) as pusher:
-                    process_user_quota(vsc, pusher, processed_quota[UsageType.UserUsage][storage_name], user_id_map)
+                    process_user_quota(
+                        vsc,
+                        pusher,
+                        processed_quota[UsageType.UserUsage][storage_name],
+                        user_id_map,
+                        institute=self.options.host_institute
+                    )
 
             if storage_name in processed_quota[UsageType.FilesetUsage]:
                 with DjangoPusher(storage_name, client, UsageType.FilesetUsage, dry_run) as pusher:
