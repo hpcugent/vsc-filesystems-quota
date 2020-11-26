@@ -238,8 +238,12 @@ def process_user_quota(vsc, pusher, quota, user_map, institute=GENT, dry_run=Fal
             VO_PREFIX_BY_SITE[institute],
             VO_SHARED_PREFIX_BY_SITE[institute])
 
+        logging.info("Boe")
+
         if re.search(fileset_re, fileset):
             pusher.push_quota(user_name, fileset, quota)
+        else:
+            logging.info("fileset does not match regex")
 
 class QuotaSync(NrpeCLI):
 
