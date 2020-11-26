@@ -304,7 +304,7 @@ class QuotaSync(NrpeCLI):
         if dry_run:
             # FIXME: should suffice to just not commit, but needs to be checked
             logging.info("Dry run, not actually consuming messages")
-            return
+            return processed_quota
 
         for msg in consumer:
 
