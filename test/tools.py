@@ -1,5 +1,5 @@
 #
-# Copyright 2012-2020 Ghent University
+# Copyright 2012-2021 Ghent University
 #
 # This file is part of vsc-filesystems-quota,
 # originally created by the HPC team of Ghent University (http://ugent.be/hpc/en),
@@ -47,8 +47,7 @@ class TestAuxiliary(TestCase):
     """
     Stuff that does not belong anywhere else :)
     """
-
-    @mock.patch('vsc.filesystem.quota.tools.pwd.getpwall')
+    @mock.patch('vsc.filesystem.quota.tools.getpwall')
     def test_map_uids_to_names(self, mock_getpwall):
         """
         Check that the remapping functions properly
@@ -74,7 +73,8 @@ class TestAuxiliary(TestCase):
 class TestProcessing(TestCase):
 
     @mock.patch.object(DjangoPusher, 'push_quota')
-    def test_process_user_quota_no_store(self, mock_django_pusher):
+    @mock.patch('vsc.filesystem.quota.tools.getpwuid')
+    def test_process_user_quota_no_store(self, mock_getpwuid, mock_django_pusher):
 
         storage_name = VSC_DATA
         item = 'vsc40075'
@@ -95,6 +95,8 @@ class TestProcessing(TestCase):
             2540075: 'vsc40075',
             2510042: 'vsc10042',
         }
+
+        mock_getpwuid.side_effect=lambda k: user_map.get(k, None)
 
         tools.process_user_quota(
             storage, None, storage_name, None, quota_map, user_map, client, dry_run=False, institute=GENT

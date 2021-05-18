@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2013-2020 Ghent University
+# Copyright 2013-2021 Ghent University
 #
 # This file is part of vsc-filesystems-quota,
 # originally created by the HPC team of Ghent University (http://ugent.be/hpc/en),
@@ -35,7 +35,9 @@ import json
 import os
 import time
 
+from vsc.config.base import GENT
 from vsc.filesystem.gpfs import GpfsOperations
+from vsc.filesystem.lustre import LustreOperations
 from vsc.utils.script_tools import ExtendedSimpleOption
 
 # Constants
@@ -54,6 +56,8 @@ def main():
     options = {
         'nagios-check-interval-threshold': NAGIOS_CHECK_INTERVAL_THRESHOLD,
         'location': ('path to store the gzipped files', None, 'store', INODE_LOG_ZIP_PATH),
+        'backend': ('Storage backend', None, 'store', 'gpfs'),
+        'host_institute': ('Name of the institute where this script is being run', str, 'store', GENT),
     }
 
     opts = ExtendedSimpleOption(options)
@@ -61,10 +65,17 @@ def main():
 
     stats = {}
 
+    backend = opts.options.backend
     try:
-        gpfs = GpfsOperations()
-        filesets = gpfs.list_filesets()
-        quota = gpfs.list_quota()
+        if backend == 'gpfs':
+            storage_backend = GpfsOperations()
+        elif backend == 'lustre':
+            storage_backend = LustreOperations()
+        else:
+            logger.exception("Backend %s not supported", backend)
+
+        filesets = storage_backend.list_filesets()
+        quota = storage_backend.list_quota()
 
         if not os.path.exists(opts.options.location):
             os.makedirs(opts.options.location, 0o755)
@@ -74,34 +85,35 @@ def main():
         for filesystem in filesets:
             stats["%s_inodes_log_critical" % (filesystem,)] = INODE_STORE_LOG_CRITICAL
             try:
-                filename = "gpfs_inodes_%s_%s.gz" % (time.strftime("%Y%m%d-%H:%M"), filesystem)
+                filename = "%s_inodes_%s_%s.gz" % (backend, time.strftime("%Y%m%d-%H:%M"), filesystem)
                 path = os.path.join(opts.options.location, filename)
                 zipfile = gzip.open(path, 'wb', 9)  # Compress to the max
-                zipfile.write(json.dumps(filesets[filesystem]))
+                zipfile.write(json.dumps(filesets[filesystem]).encode())
                 zipfile.close()
                 stats["%s_inodes_log" % (filesystem,)] = 0
-                logger.info("Stored inodes information for FS %s" % (filesystem))
+                logger.info("Stored inodes information for FS %s", filesystem)
 
-                cfs = process_inodes_information(filesets[filesystem], quota[filesystem]['FILESET'], threshold=0.9)
-                logger.info("Processed inodes information for filesystem %s" % (filesystem,))
+                cfs = process_inodes_information(filesets[filesystem], quota[filesystem]['FILESET'],
+                                                 threshold=0.9, storage=backend)
+                logger.info("Processed inodes information for filesystem %s", filesystem)
                 if cfs:
                     critical_filesets[filesystem] = cfs
-                    logger.info("Filesystem %s has at least %d filesets reaching the limit" % (filesystem, len(cfs)))
+                    logger.info("Filesystem %s has at least %d filesets reaching the limit", filesystem, len(cfs))
 
             except Exception:
                 stats["%s_inodes_log" % (filesystem,)] = 1
-                logger.exception("Failed storing inodes information for FS %s" % (filesystem))
+                logger.exception("Failed storing inodes information for FS %s", filesystem)
 
-        logger.info("Critical filesets: %s" % (critical_filesets,))
+        logger.info("Critical filesets: %s", critical_filesets)
 
         if critical_filesets:
-            mail_admins(critical_filesets, opts.options.dry_run)
+            mail_admins(critical_filesets, dry_run=opts.options.dry_run, host_institute=opts.options.host_institute)
 
     except Exception:
-        logger.exception("Failure obtaining GPFS inodes")
-        opts.critical("Failure to obtain GPFS inodes information")
+        logger.exception("Failure obtaining %s inodes", backend)
+        opts.critical("Failure to obtain %s inodes information" % backend)
 
-    opts.epilogue("Logged GPFS inodes", stats)
+    opts.epilogue("Logged %s inodes" % backend, stats)
 
 if __name__ == '__main__':
     main()

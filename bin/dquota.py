@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 #
-# Copyright 2012-2020 Ghent University
+# Copyright 2012-2021 Ghent University
 #
 # This file is part of vsc-filesystems-quota,
 # originally created by the HPC team of Ghent University (http://ugent.be/hpc/en),
@@ -40,8 +40,8 @@ Script to check for quota transgressions and notify the offending users.
 from vsc.accountpage.client import AccountpageClient
 from vsc.config.base import VscStorage, GENT
 from vsc.filesystem.gpfs import GpfsOperations
-from vsc.filesystem.quota.tools import get_mmrepquota_maps, map_uids_to_names
-from vsc.filesystem.quota.tools import process_user_quota, process_fileset_quota
+from vsc.filesystem.quota.tools import get_mmrepquota_maps
+from vsc.filesystem.quota.tools import process_user_quota, process_fileset_quota, map_uids_to_names
 from vsc.utils.script_tools import ExtendedSimpleOption
 
 # Constants
@@ -69,17 +69,17 @@ def main():
     try:
         client = AccountpageClient(token=opts.options.access_token)
 
-        user_id_map = map_uids_to_names()  # is this really necessary?
+        user_id_map = map_uids_to_names()
         gpfs = GpfsOperations()
         storage = VscStorage()
 
         target_filesystems = [storage[s].filesystem for s in opts.options.storage]
 
         filesystems = gpfs.list_filesystems(device=target_filesystems).keys()
-        logger.debug("Found the following GPFS filesystems: %s" % (filesystems))
+        logger.debug("Found the following GPFS filesystems: %s", filesystems)
 
         filesets = gpfs.list_filesets(devices=target_filesystems)
-        logger.debug("Found the following GPFS filesets: %s" % (filesets))
+        logger.debug("Found the following GPFS filesets: %s", filesets)
 
         quota = gpfs.list_quota(devices=target_filesystems)
         exceeding_filesets = {}
@@ -88,16 +88,16 @@ def main():
 
         for storage_name in opts.options.storage:
 
-            logger.info("Processing quota for storage_name %s" % (storage_name))
+            logger.info("Processing quota for storage_name %s", storage_name)
             filesystem = storage[storage_name].filesystem
             replication_factor = storage[storage_name].data_replication_factor
 
             if filesystem not in filesystems:
-                logger.error("Non-existent filesystem %s" % (filesystem))
+                logger.error("Non-existent filesystem %s", filesystem)
                 continue
 
             if filesystem not in quota.keys():
-                logger.error("No quota defined for storage_name %s [%s]" % (storage_name, filesystem))
+                logger.error("No quota defined for storage_name %s [%s]", storage_name, filesystem)
                 continue
 
             quota_storage_map = get_mmrepquota_maps(
@@ -122,25 +122,25 @@ def main():
                 logger.warning("storage_name %s found %d filesets that are exceeding their quota",
                                storage_name, len(exceeding_filesets))
                 for (e_fileset, e_quota) in exceeding_filesets[storage_name]:
-                    logger.warning("%s has quota %s" % (e_fileset, str(e_quota)))
+                    logger.warning("%s has quota %s", e_fileset, str(e_quota))
             else:
                 stats["%s_fileset" % (storage_name,)] = 0
-                logger.debug("storage_name %s found no filesets that are exceeding their quota" % storage_name)
+                logger.debug("storage_name %s found no filesets that are exceeding their quota", storage_name)
 
             stats["%s_users_warning" % (storage_name,)] = QUOTA_USERS_WARNING
             stats["%s_users_critical" % (storage_name,)] = QUOTA_USERS_CRITICAL
             if exceeding_users[storage_name]:
                 stats["%s_users" % (storage_name,)] = len(exceeding_users[storage_name])
-                logger.warning("storage_name %s found %d users who are exceeding their quota" %
-                               (storage_name, len(exceeding_users[storage_name])))
+                logger.warning("storage_name %s found %d users who are exceeding their quota",
+                               storage_name, len(exceeding_users[storage_name]))
                 for (e_user_id, e_quota) in exceeding_users[storage_name]:
-                    logger.warning("%s has quota %s" % (e_user_id, str(e_quota)))
+                    logger.warning("%s has quota %s", e_user_id, str(e_quota))
             else:
                 stats["%s_users" % (storage_name,)] = 0
-                logger.debug("storage_name %s found no users who are exceeding their quota" % storage_name)
+                logger.debug("storage_name %s found no users who are exceeding their quota", storage_name)
 
     except Exception as err:
-        logger.exception("critical exception caught: %s" % (err))
+        logger.exception("critical exception caught: %s", err)
         opts.critical("Script failed in a horrible way")
 
     opts.epilogue("quota check completed", stats)

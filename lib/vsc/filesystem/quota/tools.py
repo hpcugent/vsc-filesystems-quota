@@ -1,5 +1,5 @@
 #
-# Copyright 2015-2020 Ghent University
+# Copyright 2015-2021 Ghent University
 #
 # This file is part of vsc-filesystems-quota,
 # originally created by the HPC team of Ghent University (http://ugent.be/hpc/en),
@@ -31,14 +31,17 @@ Helper functions for all things quota related.
 """
 
 import logging
-import pwd
 import re
 import socket
 import time
 
 from collections import namedtuple
+from pwd import getpwuid, getpwall
 
-from vsc.config.base import GENT, STORAGE_SHARED_SUFFIX, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE, VSC
+from vsc.config.base import (
+    GENT, STORAGE_SHARED_SUFFIX, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE,
+    VSC, INSTITUTE_SMTP_SERVER, INSTITUTE_ADMIN_EMAIL
+)
 from vsc.filesystem.quota.entities import QuotaUser, QuotaFileset
 from vsc.utils.mail import VscMail
 
@@ -201,7 +204,10 @@ def process_user_quota(storage, gpfs, storage_name, filesystem, quota_map, user_
 
             user_name = user_map.get(int(user_id), None)
             if not user_name:
-                continue
+                try:
+                    user_name = getpwuid(int(user_id))
+                except KeyError:
+                    continue
 
             fileset_name = path_template['user'](user_name)[1]
 
@@ -377,14 +383,14 @@ def process_fileset_quota(storage, gpfs, storage_name, filesystem, quota_map, cl
 
 def map_uids_to_names():
     """Determine the mapping between user ids and user names."""
-    ul = pwd.getpwall()
+    ul = getpwall()
     d = {}
     for u in ul:
         d[u[2]] = u[0]
     return d
 
 
-def process_inodes_information(filesets, quota, threshold=0.9):
+def process_inodes_information(filesets, quota, threshold=0.9, storage='gpfs'):
     """
     Determines which filesets have reached a critical inode limit.
 
@@ -396,8 +402,8 @@ def process_inodes_information(filesets, quota, threshold=0.9):
     critical_filesets = dict()
 
     for (fs_key, fs_info) in filesets.items():
-        allocated = int(fs_info['allocInodes'])
-        maxinodes = int(fs_info['maxInodes'])
+        allocated = int(fs_info['allocInodes']) if storage == 'gpfs' else 0
+        maxinodes = int(fs_info['maxInodes']) if storage == 'gpfs' else int(quota[fs_key][0].filesLimit)
         used = int(quota[fs_key][0].filesUsage)
 
         if maxinodes > 0 and used > threshold * maxinodes:
@@ -407,9 +413,9 @@ def process_inodes_information(filesets, quota, threshold=0.9):
     return critical_filesets
 
 
-def mail_admins(critical_filesets, dry_run=True):
+def mail_admins(critical_filesets, dry_run=True, host_institute=GENT):
     """Send email to the HPC admin about the inodes running out soonish."""
-    mail = VscMail(mail_host="smtp.ugent.be")
+    mail = VscMail(mail_host=INSTITUTE_SMTP_SERVER[host_institute])
 
     message = CRITICAL_INODE_COUNT_MESSAGE
     fileset_info = []
@@ -428,8 +434,8 @@ def mail_admins(critical_filesets, dry_run=True):
     if dry_run:
         logging.info("Would have sent this message: %s", message)
     else:
-        mail.sendTextMail(mail_to="hpc-admin@lists.ugent.be",
-                          mail_from="hpc-admin@lists.ugent.be",
-                          reply_to="hpc-admin@lists.ugent.be",
+        mail.sendTextMail(mail_to=INSTITUTE_ADMIN_EMAIL[host_institute],
+                          mail_from=INSTITUTE_ADMIN_EMAIL[host_institute],
+                          reply_to=INSTITUTE_ADMIN_EMAIL[host_institute],
                           mail_subject="Inode space(s) running out on %s" % (socket.gethostname()),
                           message=message)
