@@ -214,7 +214,7 @@ class QuotaReporter(KafkaCLI):
                 return None
 
             if 'payload' in event:
-                return event
+                return event['payload']
             else:
                 logging.error("Payload missing from event %s", event)
                 return None
@@ -241,42 +241,34 @@ class QuotaReporter(KafkaCLI):
 
         for msg in consumer:
 
-            event = self.process_msg(msg)
+            payload = self.process_msg(msg)
 
-            # if the event is something we want to retain, add it to the set
-            quota_set.add(event)
-
+            if payload and 'quota' in payload and payload['quota']['filesystem'] in opts.options.storage:
+                quota_set.add(payload['quota'])
 
         for storage_name in opts.options.storage:
 
-            logger.info("Processing quota for storage_name %s", storage_name)
+            logging.info("Processing quota for storage_name %s", storage_name)
             filesystem = storage[storage_name].filesystem
             replication_factor = storage[storage_name].data_replication_factor
 
-            if filesystem not in filesystems:
-                logger.error("Non-existent filesystem %s", filesystem)
-                continue
+            fileset_quota_data = [q for q in quota_set
+                if q['filesystem'] == storage_name
+                and q['kind'] == 'FILESET']
 
-            if filesystem not in quota.keys():
-                logger.error("No quota defined for storage_name %s [%s]", storage_name, filesystem)
-                continue
-
-            quota_storage_map = get_mmrepquota_maps(
-                quota[filesystem],
-                storage_name,
-                filesystem,
-                filesets,
-                replication_factor,
+            process_fileset_quota(
+                storage, gpfs, storage_name, filesystem, fileset_quota_data,
+                ap_client, dry_run=opts.options.dry_run, institute=opts.options.host_institute
             )
 
-            exceeding_filesets[storage_name] = process_fileset_quota(
-                storage, gpfs, storage_name, filesystem, quota_storage_map['FILESET'],
-                client, dry_run=opts.options.dry_run, institute=opts.options.host_institute)
+            usr_quota_data = [q for q in quota_set
+                if q['filesystem'] == storage_name
+                and q['kind'] == 'USR']
 
-            exceeding_users[storage_name] = process_user_quota(
-                storage, gpfs, storage_name, None, quota_storage_map['USR'],
-                user_id_map, client, dry_run=opts.options.dry_run, institute=opts.options.host_institute)
-
+            process_user_quota(
+                storage, gpfs, storage_name, None, usr_quota_data,
+                user_id_map, ap_client, dry_run=opts.options.dry_run, institute=opts.options.host_institute
+            )
 
 
 
