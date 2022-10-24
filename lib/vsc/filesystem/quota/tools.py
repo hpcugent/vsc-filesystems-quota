@@ -43,6 +43,7 @@ from pwd import getpwuid, getpwall
 from vsc.utils.script_tools import CLI
 from vsc.reporting.xdmod.cli import KafkaCLI
 
+from vsc.accountpage.client import AccountpageClient
 from vsc.config.base import (
     GENT, STORAGE_SHARED_SUFFIX, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE,
     VSC, INSTITUTE_ADMIN_EMAIL
@@ -224,13 +225,13 @@ class QuotaReporter(KafkaCLI):
 
     def do(self, dry_run):
 
-        ap_client = AccountpageClient(token=opts.options.access_token)
+        ap_client = AccountpageClient(token=self.options.access_token)
 
         user_id_map = map_uids_to_names()
         gpfs = GpfsOperations()
         storage = VscStorage()
 
-        target_filesystems = [storage[s].filesystem for s in opts.options.storage]
+        target_filesystems = [storage[s].filesystem for s in self.options.storage]
         consumer = self.make_consumer(self.options.group)
 
         def consumer_close():
@@ -243,10 +244,10 @@ class QuotaReporter(KafkaCLI):
 
             payload = self.process_msg(msg)
 
-            if payload and 'quota' in payload and payload['quota']['filesystem'] in opts.options.storage:
+            if payload and 'quota' in payload and payload['quota']['filesystem'] in self.options.storage:
                 quota_set.add(payload['quota'])
 
-        for storage_name in opts.options.storage:
+        for storage_name in self.options.storage:
 
             logging.info("Processing quota for storage_name %s", storage_name)
             filesystem = storage[storage_name].filesystem
@@ -256,20 +257,80 @@ class QuotaReporter(KafkaCLI):
                 if q['filesystem'] == storage_name
                 and q['kind'] == 'FILESET']
 
-            process_fileset_quota(
+            self.process_fileset_quota(
                 storage, gpfs, storage_name, filesystem, fileset_quota_data,
-                ap_client, dry_run=opts.options.dry_run, institute=opts.options.host_institute
+                ap_client, dry_run=opts.options.dry_run, institute=self.options.host_institute
             )
 
             usr_quota_data = [q for q in quota_set
                 if q['filesystem'] == storage_name
                 and q['kind'] == 'USR']
 
-            process_user_quota(
-                storage, gpfs, storage_name, None, usr_quota_data,
-                user_id_map, ap_client, dry_run=opts.options.dry_run, institute=opts.options.host_institute
+            self.process_user_quota(
+                storage, storage_name, usr_quota_data,
+                user_id_map, ap_client, institute=self.options.host_institute
             )
 
+    def process_user_quota(self, storage, storage_name, quota_map, user_map, client, institute=GENT):
+        """
+        Wrapper around the new function to keep the old behaviour intact.
+        """
+        path_template = storage.path_templates[institute][storage_name]
+        vsc = VSC()
+
+        logging.info("Logging user quota to account page")
+        logging.debug("Considering the following quota items for pushing: %s", quota_map)
+
+        with DjangoPusher(storage_name, client, QUOTA_USER_KIND, self.options.dry_run) as pusher:
+            for quota in quota_map:
+
+                user_id = quota['entity']
+
+                user_institute = vsc.user_id_to_institute(int(user_id))
+                if user_institute != institute:
+                    continue
+
+                user_name = user_map.get(int(user_id), None)
+                if not user_name:
+                    try:
+                        user_name = getpwuid(int(user_id)).pw_name
+                    except KeyError:
+                        continue
+
+                fileset_name = path_template['user'](user_name)[1]
+                fileset_re = '^(vsc[1-4]|%s|%s|%s)' % (VO_PREFIX_BY_SITE[institute],
+                                                    VO_SHARED_PREFIX_BY_SITE[institute],
+                                                    fileset_name)
+
+                for (fileset, quota_) in quota.quota_map.items():
+                    if re.search(fileset_re, fileset):
+                        pusher.push_quota(user_name, fileset, quota_)
+
+    def process_fileset_quota(self, gpfs, storage_name, filesystem, quota_map, client, institute=GENT):
+        """wrapper around the new function to keep the old behaviour intact"""
+        filesets = gpfs.list_filesets()
+
+        logging.info("Logging VO quota to account page")
+        logging.debug("Considering the following quota items for pushing: %s", quota_map)
+
+        with DjangoPusher(storage_name, client, QUOTA_VO_KIND, self.options.dry_run) as pusher:
+            for quota in quota_map.items():
+                fileset_name = quota["fileset"]
+                logging.debug("Fileset %s quota: %s", fileset_name, quota)
+
+                if not fileset_name.startswith(VO_PREFIX_BY_SITE[institute]):
+                    continue
+
+                if fileset_name.startswith(VO_SHARED_PREFIX_BY_SITE[institute]):
+                    vo_name = fileset_name.replace(VO_SHARED_PREFIX_BY_SITE[institute], VO_PREFIX_BY_SITE[institute])
+                    shared = True
+                else:
+                    vo_name = fileset_name
+                    shared = False
+
+                for quota_ in quota.quota_map.items():
+                    fileset_ = quota['entity']
+                    pusher.push_quota(vo_name, fileset_, quota_, shared=shared)
 
 
 def process_user_quota(storage, gpfs, storage_name, filesystem, quota_map, user_map, client,
