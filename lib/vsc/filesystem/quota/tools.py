@@ -41,6 +41,7 @@ import time
 from collections import namedtuple
 from pwd import getpwuid, getpwall
 from vsc.utils.script_tools import CLI
+from vsc.reporting.xdmod.cli import KafkaCLI
 
 from vsc.config.base import (
     GENT, STORAGE_SHARED_SUFFIX, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE,
@@ -187,6 +188,96 @@ class DjangoPusher(object):
             except Exception:
                 logging.error("Could not store quota info in account web app")
                 raise
+
+
+class QuotaReporter(KafkaCLI):
+
+    CLI_OPTIONS = {
+        'storage': ('the VSC filesystems that are checked by this script', None, 'extend', []),
+        'account_page_url': ('Base URL of the account page', None, 'store', 'https://account.vscentrum.be/django'),
+        'access_token': ('OAuth2 token to access the account page REST API', None, 'store', None),
+        'host_institute': ('Name of the institute where this script is being run', str, 'store', GENT),
+        'group': ("Kafka consumer group", None, "store", "ap-quota"),
+    }
+
+    def process_msg(self, msg):
+        """
+        Process msg as JSON.
+        Return None on failure.
+        """
+        value = msg.value
+        if value:
+            try:
+                event = json.loads(value)
+            except ValueError:
+                logging.error("Failed to load as JSON: %s", value)
+                return None
+
+            if 'payload' in event:
+                return event
+            else:
+                logging.error("Payload missing from event %s", event)
+                return None
+        else:
+            logging.error("msg has no value %s (%s)", msg, type(msg))
+            return None
+
+    def do(self, dry_run):
+
+        ap_client = AccountpageClient(token=opts.options.access_token)
+
+        user_id_map = map_uids_to_names()
+        gpfs = GpfsOperations()
+        storage = VscStorage()
+
+        target_filesystems = [storage[s].filesystem for s in opts.options.storage]
+        consumer = self.make_consumer(self.options.group)
+
+        def consumer_close():
+            # default is autocommit=True, which is not ok wrt dry_run
+            consumer.close(autocommit=False)
+
+        quota_set = set()
+
+        for msg in consumer:
+
+            event = self.process_msg(msg)
+
+            # if the event is something we want to retain, add it to the set
+            quota_set.add(event)
+
+
+        for storage_name in opts.options.storage:
+
+            logger.info("Processing quota for storage_name %s", storage_name)
+            filesystem = storage[storage_name].filesystem
+            replication_factor = storage[storage_name].data_replication_factor
+
+            if filesystem not in filesystems:
+                logger.error("Non-existent filesystem %s", filesystem)
+                continue
+
+            if filesystem not in quota.keys():
+                logger.error("No quota defined for storage_name %s [%s]", storage_name, filesystem)
+                continue
+
+            quota_storage_map = get_mmrepquota_maps(
+                quota[filesystem],
+                storage_name,
+                filesystem,
+                filesets,
+                replication_factor,
+            )
+
+            exceeding_filesets[storage_name] = process_fileset_quota(
+                storage, gpfs, storage_name, filesystem, quota_storage_map['FILESET'],
+                client, dry_run=opts.options.dry_run, institute=opts.options.host_institute)
+
+            exceeding_users[storage_name] = process_user_quota(
+                storage, gpfs, storage_name, None, quota_storage_map['USR'],
+                user_id_map, client, dry_run=opts.options.dry_run, institute=opts.options.host_institute)
+
+
 
 
 def process_user_quota(storage, gpfs, storage_name, filesystem, quota_map, user_map, client,
