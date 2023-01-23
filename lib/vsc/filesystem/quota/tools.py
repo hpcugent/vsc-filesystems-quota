@@ -205,6 +205,48 @@ class QuotaReporter(KafkaCLI):
         """
         Process msg as JSON.
         Return None on failure.
+
+        full message looks like:
+        {
+              "@timestamp": "2023-01-09T19:19:19.518Z",
+              "@metadata": {
+                "beat": "gpfsbeat",
+                "type": "_doc",
+                "version": "7.10.0"
+              },
+              "quota": {
+                "files_soft": 0,
+                "kind": "USR",
+                "files_usage": 2,
+                "block_usage": 0,
+                "filesystem": "arcaninescratch",
+                "entity": "vwc40075",
+                "block_hard": 1048576,
+                "files_expired": "none",
+                "fileset": "gvo00002",
+                "block_soft": 995328,
+                "files_hard": 0,
+                "block_expired": "none",
+                "block_doubt": 0,
+                "files_doubt": 0
+              },
+              "type": "gpfsbeat",
+              "counter": 657,
+              "ecs": {
+                "version": "1.6.0"
+              },
+              "host": {
+                "name": "gpfsbeat"
+              },
+              "agent": {
+                "ephemeral_id": "snip",
+                "id": "snip",
+                "name": "gpfsbeat",
+                "type": "gpfsbeat",
+                "version": "7.10.0",
+                "hostname": "myhost.mydomain"
+              }
+        }
         """
         value = msg.value
         if value:
@@ -214,10 +256,9 @@ class QuotaReporter(KafkaCLI):
                 logging.error("Failed to load as JSON: %s", value)
                 return None
 
-            if 'payload' in event:
-                return event['payload']
+            if 'quota' in event:
+                return event['quota']
             else:
-                logging.error("Payload missing from event %s", event)
                 return None
         else:
             logging.error("msg has no value %s (%s)", msg, type(msg))
@@ -242,10 +283,10 @@ class QuotaReporter(KafkaCLI):
 
         for msg in consumer:
 
-            payload = self.process_msg(msg)
+            quota_payload = self.process_msg(msg)
 
-            if payload and 'quota' in payload and payload['quota']['filesystem'] in self.options.storage:
-                quota_set.add(payload['quota'])
+            if quota_payload and quota_payload['filesystem'] in self.options.storage:
+                quota_set.add(quota_payload)
 
         for storage_name in self.options.storage:
 
@@ -331,101 +372,6 @@ class QuotaReporter(KafkaCLI):
                 for quota_ in quota.quota_map.items():
                     fileset_ = quota['entity']
                     pusher.push_quota(vo_name, fileset_, quota_, shared=shared)
-
-
-def process_user_quota(storage, gpfs, storage_name, filesystem, quota_map, user_map, client,
-                       dry_run=False, institute=GENT):
-    """
-    Wrapper around the new function to keep the old behaviour intact.
-    """
-    del filesystem
-    del gpfs
-
-    exceeding_users = []
-    path_template = storage.path_templates[institute][storage_name]
-    vsc = VSC()
-
-    logging.info("Logging user quota to account page")
-    logging.debug("Considering the following quota items for pushing: %s", quota_map)
-
-    with DjangoPusher(storage_name, client, QUOTA_USER_KIND, dry_run) as pusher:
-        for (user_id, quota) in quota_map.items():
-
-            user_institute = vsc.user_id_to_institute(int(user_id))
-            if user_institute != institute:
-                continue
-
-            user_name = user_map.get(int(user_id), None)
-            if not user_name:
-                try:
-                    user_name = getpwuid(int(user_id)).pw_name
-                except KeyError:
-                    continue
-
-            fileset_name = path_template['user'](user_name)[1]
-
-            fileset_re = '^(vsc[1-4]|%s|%s|%s)' % (VO_PREFIX_BY_SITE[institute],
-                                                   VO_SHARED_PREFIX_BY_SITE[institute],
-                                                   fileset_name)
-
-            for (fileset, quota_) in quota.quota_map.items():
-                if re.search(fileset_re, fileset):
-                    pusher.push_quota(user_name, fileset, quota_)
-
-            if quota.exceeds():
-                exceeding_users.append((user_name, quota))
-
-    return exceeding_users
-
-
-def get_mmrepquota_maps(quota_map, storage, filesystem, filesets,
-                        replication_factor=1):
-    """Obtain the quota information.
-
-    This function uses vsc.filesystem.gpfs.GpfsOperations to obtain
-    quota information for all filesystems known to the storage.
-
-    The returned dictionaries contain all information on a per user
-    and per fileset basis for the given filesystem. Users with multiple
-    quota settings across different filesets are processed correctly.
-
-    Returns { "USR": user dictionary, "FILESET": fileset dictionary}.
-
-    @type replication_factor: int, describing the number of copies the FS holds for each file
-    @type metadata_replication_factor: int, describing the number of copies the FS metadata holds for each file
-    """
-    user_map = {}
-    fs_map = {}
-
-    timestamp = int(time.time())
-
-    logging.info("ordering USR quota for storage %s", storage)
-    # Iterate over a list of named tuples -- GpfsQuota
-    for (user, gpfs_quota) in quota_map['USR'].items():
-        user_quota = user_map.get(user, QuotaUser(storage, filesystem, user))
-        user_map[user] = _update_quota_entity(
-            filesets,
-            user_quota,
-            filesystem,
-            gpfs_quota,
-            timestamp,
-            replication_factor
-        )
-
-    logging.info("ordering FILESET quota for storage %s", storage)
-    # Iterate over a list of named tuples -- GpfsQuota
-    for (fileset, gpfs_quota) in quota_map['FILESET'].items():
-        fileset_quota = fs_map.get(fileset, QuotaFileset(storage, filesystem, fileset))
-        fs_map[fileset] = _update_quota_entity(
-            filesets,
-            fileset_quota,
-            filesystem,
-            gpfs_quota,
-            timestamp,
-            replication_factor
-        )
-
-    return {"USR": user_map, "FILESET": fs_map}
 
 
 def determine_grace_period(grace_string):
