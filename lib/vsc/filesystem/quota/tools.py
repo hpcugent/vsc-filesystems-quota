@@ -219,7 +219,7 @@ class QuotaReporter(ConsumerCLI):
     def process_msg(self, msg):
         """
         Process msg as JSON.
-        Return None on failure.
+        Return None on failure or if the message holds no usage information.
 
         full message looks like:
         {
@@ -290,15 +290,8 @@ class QuotaReporter(ConsumerCLI):
         self.system_storage_map = dict([(self.storage[GENT][k].filesystem, k) for k in self.storage if k != GENT])
 
         consumer = self.make_consumer(self.options.group)
-
-        def consumer_close():
-            # default is autocommit=True, which is not ok wrt dry_run
-            consumer.close(autocommit=False)
-
         quota_list = []
-
         for msg in consumer:
-
             usage = self.process_msg(msg)
             logging.info("Received payload: %s", usage)
 
