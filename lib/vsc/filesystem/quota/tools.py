@@ -41,17 +41,32 @@ import time
 from collections import namedtuple
 from pwd import getpwuid, getpwall
 from vsc.utils.script_tools import CLI
-from vsc.reporting.xdmod.cli import KafkaCLI
+from vsc.reporting.xdmod.consumer import ConsumerCLI
 
 from vsc.accountpage.client import AccountpageClient
 from vsc.config.base import (
     GENT, STORAGE_SHARED_SUFFIX, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE,
-    VSC, INSTITUTE_ADMIN_EMAIL
+    VSC, INSTITUTE_ADMIN_EMAIL, VscStorage
 )
-from vsc.filesystem.gpfs import GpfsOperations
-from vsc.filesystem.lustre import LustreOperations
-from vsc.filesystem.quota.entities import QuotaUser, QuotaFileset
 from vsc.utils.mail import VscMail
+
+
+UsageInformation = namedtuple('UsageInformation', [
+    'filesystem', # filesystem name
+    'fileset', # fileset (gpfs)
+    'entity', # the user or VO owning the usage
+    'kind', # the kind of usage info (USR, FILESET, GROUP)
+    'block_usage',  # used quota in KiB
+    'block_soft',  # soft quota limit in KiB
+    'block_hard',  # hard quota limit in KiB
+    'block_doubt',  # the KiB GPFS is not sure about
+    'block_expired',  # tuple (boolean, grace period expressed in seconds)
+    'files_usage',  # used number of inodes
+    'files_soft',  # soft limit for inodes
+    'files_hard',  # hard limit for inodes
+    'files_doubt',  # the inodes GPFS is not sure about
+    'files_expired',  # tuple (boolean, grace period expressed in seconds)
+])
 
 GPFS_GRACE_REGEX = re.compile(
     r"(?P<days>\d+)\s*days?|(?P<hours>\d+)\s*hours?|(?P<minutes>\d+)\s*minutes?|(?P<expired>expired)"
@@ -191,7 +206,7 @@ class DjangoPusher(object):
                 raise
 
 
-class QuotaReporter(KafkaCLI):
+class QuotaReporter(ConsumerCLI):
 
     CLI_OPTIONS = {
         'storage': ('the VSC filesystems that are checked by this script', None, 'extend', []),
@@ -220,7 +235,7 @@ class QuotaReporter(KafkaCLI):
                 "files_usage": 2,
                 "block_usage": 0,
                 "filesystem": "arcaninescratch",
-                "entity": "vwc40075",
+                "entity": "vsc40075",
                 "block_hard": 1048576,
                 "files_expired": "none",
                 "fileset": "gvo00002",
@@ -257,7 +272,8 @@ class QuotaReporter(KafkaCLI):
                 return None
 
             if 'quota' in event:
-                return event['quota']
+                kwargs = dict([(field, event['quota'][field]) for field in UsageInformation._fields])
+                return self._update_usage(UsageInformation(**kwargs))
             else:
                 return None
         else:
@@ -269,63 +285,54 @@ class QuotaReporter(KafkaCLI):
         ap_client = AccountpageClient(token=self.options.access_token)
 
         user_id_map = map_uids_to_names()
-        gpfs = GpfsOperations()
-        storage = VscStorage()
+        self.storage = VscStorage()
 
-        target_filesystems = [storage[s].filesystem for s in self.options.storage]
+        self.system_storage_map = dict([(self.storage[GENT][k].filesystem, k) for k in self.storage if k != GENT])
+
         consumer = self.make_consumer(self.options.group)
 
         def consumer_close():
             # default is autocommit=True, which is not ok wrt dry_run
             consumer.close(autocommit=False)
 
-        quota_set = set()
+        quota_list = []
 
+        i = 0  # testing purposes
         for msg in consumer:
 
-            quota_payload = self.process_msg(msg)
+            usage = self.process_msg(msg)
+            logging.info("Received payload: %s", usage)
 
-            if quota_payload and quota_payload['filesystem'] in self.options.storage:
-                quota_set.add(quota_payload)
+            if usage and usage.filesystem in self.system_storage_map:
+                quota_list.append(usage)
+
+            i += 1
+            if i > 10:
+                break
 
         for storage_name in self.options.storage:
 
             logging.info("Processing quota for storage_name %s", storage_name)
-            filesystem = storage[storage_name].filesystem
-            replication_factor = storage[storage_name].data_replication_factor
 
-            fileset_quota_data = [q for q in quota_set
-                if q['filesystem'] == storage_name
-                and q['kind'] == 'FILESET']
+            fileset_quota_data = [q for q in quota_list if q.filesystem == storage_name and q.kind == 'FILESET']
+            self.process_fileset_quota(storage_name, fileset_quota_data, ap_client)
 
-            self.process_fileset_quota(
-                storage, gpfs, storage_name, filesystem, fileset_quota_data,
-                ap_client, dry_run=opts.options.dry_run, institute=self.options.host_institute
-            )
+            usr_quota_data = [q for q in quota_list if q.filesystem == storage_name and q.kind == 'USR']
+            self.process_user_quota(storage_name, usr_quota_data, user_id_map, ap_client)
 
-            usr_quota_data = [q for q in quota_set
-                if q['filesystem'] == storage_name
-                and q['kind'] == 'USR']
+    def process_user_quota(self, storage_name, quota_list, user_map, client):
 
-            self.process_user_quota(
-                storage, storage_name, usr_quota_data,
-                user_id_map, ap_client, institute=self.options.host_institute
-            )
-
-    def process_user_quota(self, storage, storage_name, quota_map, user_map, client, institute=GENT):
-        """
-        Wrapper around the new function to keep the old behaviour intact.
-        """
-        path_template = storage.path_templates[institute][storage_name]
+        institute = self.options.host_institute
+        path_template = self.storage.path_templates[institute][storage_name]
         vsc = VSC()
 
         logging.info("Logging user quota to account page")
-        logging.debug("Considering the following quota items for pushing: %s", quota_map)
+        logging.debug("Considering the following quota items for pushing: %s", quota_list)
 
         with DjangoPusher(storage_name, client, QUOTA_USER_KIND, self.options.dry_run) as pusher:
-            for quota in quota_map:
+            for quota in quota_list:
 
-                user_id = quota['entity']
+                user_id = quota.entity
 
                 user_institute = vsc.user_id_to_institute(int(user_id))
                 if user_institute != institute:
@@ -343,20 +350,19 @@ class QuotaReporter(KafkaCLI):
                                                     VO_SHARED_PREFIX_BY_SITE[institute],
                                                     fileset_name)
 
-                for (fileset, quota_) in quota.quota_map.items():
-                    if re.search(fileset_re, fileset):
-                        pusher.push_quota(user_name, fileset, quota_)
+                if re.search(fileset_re, quota.fileset):
+                    pusher.push_quota(user_name, quota.fileset, quota)
 
-    def process_fileset_quota(self, gpfs, storage_name, filesystem, quota_map, client, institute=GENT):
-        """wrapper around the new function to keep the old behaviour intact"""
-        filesets = gpfs.list_filesets()
+    def process_fileset_quota(self, storage_name, quota_list, client):
 
         logging.info("Logging VO quota to account page")
-        logging.debug("Considering the following quota items for pushing: %s", quota_map)
+        logging.debug("Considering the following quota items for pushing: %s", quota_list)
+
+        institute = self.options.host_institute
 
         with DjangoPusher(storage_name, client, QUOTA_VO_KIND, self.options.dry_run) as pusher:
-            for quota in quota_map.items():
-                fileset_name = quota["fileset"]
+            for quota in quota_list:
+                fileset_name = quota.fileset
                 logging.debug("Fileset %s quota: %s", fileset_name, quota)
 
                 if not fileset_name.startswith(VO_PREFIX_BY_SITE[institute]):
@@ -369,9 +375,34 @@ class QuotaReporter(KafkaCLI):
                     vo_name = fileset_name
                     shared = False
 
-                for quota_ in quota.quota_map.items():
-                    fileset_ = quota['entity']
-                    pusher.push_quota(vo_name, fileset_, quota_, shared=shared)
+                fileset_ = quota.entity
+                pusher.push_quota(vo_name, fileset_, quota, shared=shared)
+
+    def _update_usage(self, usage):
+        """
+        Update the quota information for an entity (user or fileset).
+        """
+
+        block_expired = determine_grace_period(usage.block_expired)
+        files_expired = determine_grace_period(usage.files_expired)
+
+        replication_factor = self.storage[self.system_storage_map[usage.filesystem]].data_replication_factor
+        # TODO: check if we should address the inode usage in relation to the replication factor (ideally: no)
+        usage._replace(
+            block_usage=int(usage.block_usage) // replication_factor,
+            block_soft=int(usage.block_soft) // replication_factor,
+            block_hard=int(usage.block_hard) // replication_factor,
+            block_doubt=int(usage.block_doubt) // replication_factor,
+            block_expired=block_expired,
+            files_usage=int(usage.files_usage),
+            files_soft=int(usage.files_soft),
+            files_hard=int(usage.files_hard),
+            files_doubt=int(usage.files_doubt),
+            files_expired=files_expired,
+        )
+
+        return usage
+
 
 
 def determine_grace_period(grace_string):
@@ -402,82 +433,6 @@ def determine_grace_period(grace_string):
 
     return expired
 
-
-def _update_quota_entity(filesets, entity, filesystem, gpfs_quotas, timestamp, replication_factor=1):
-    """
-    Update the quota information for an entity (user or fileset).
-
-    @type filesets: string
-    @type entity: QuotaEntity instance
-    @type filesystem: string
-    @type gpfs_quota: list of GpfsQuota namedtuple instances
-    @type timestamp: a timestamp, duh. an integer
-    @type replication_factor: int, describing the number of copies the FS holds for each file
-    """
-    for quota in gpfs_quotas:
-        logging.debug("gpfs_quota = %s", quota)
-
-        block_expired = determine_grace_period(quota.blockGrace)
-        files_expired = determine_grace_period(quota.filesGrace)
-
-        if quota.filesetname:
-            fileset_name = filesets[filesystem][quota.filesetname]['filesetName']
-        else:
-            fileset_name = None
-
-        logging.debug("The fileset name is %s (filesystem %s); blockgrace %s to expired %s",
-                      fileset_name, filesystem, quota.blockGrace, block_expired)
-
-        # XXX: We do NOT divide by the metatadata_replication_factor (yet), since we do not
-        #      set the inode quota through the account page. As such, we need to have the exact
-        #      usage available for the user -- this is the same data reported in ES by gpfsbeat.
-        entity.update(fileset=fileset_name,
-                      used=int(quota.blockUsage) // replication_factor,
-                      soft=int(quota.blockQuota) // replication_factor,
-                      hard=int(quota.blockLimit) // replication_factor,
-                      doubt=int(quota.blockInDoubt) // replication_factor,
-                      expired=block_expired,
-                      files_used=int(quota.filesUsage),
-                      files_soft=int(quota.filesQuota),
-                      files_hard=int(quota.filesLimit),
-                      files_doubt=int(quota.filesInDoubt),
-                      files_expired=files_expired,
-                      timestamp=timestamp)
-
-    return entity
-
-
-def process_fileset_quota(storage, gpfs, storage_name, filesystem, quota_map, client, dry_run=False, institute=GENT):
-    """wrapper around the new function to keep the old behaviour intact"""
-    del storage
-    filesets = gpfs.list_filesets()
-    exceeding_filesets = []
-
-    logging.info("Logging VO quota to account page")
-    logging.debug("Considering the following quota items for pushing: %s", quota_map)
-
-    with DjangoPusher(storage_name, client, QUOTA_VO_KIND, dry_run) as pusher:
-        for (fileset, quota) in quota_map.items():
-            fileset_name = filesets[filesystem][fileset]['filesetName']
-            logging.debug("Fileset %s quota: %s", fileset_name, quota)
-
-            if not fileset_name.startswith(VO_PREFIX_BY_SITE[institute]):
-                continue
-
-            if fileset_name.startswith(VO_SHARED_PREFIX_BY_SITE[institute]):
-                vo_name = fileset_name.replace(VO_SHARED_PREFIX_BY_SITE[institute], VO_PREFIX_BY_SITE[institute])
-                shared = True
-            else:
-                vo_name = fileset_name
-                shared = False
-
-            for (fileset_, quota_) in quota.quota_map.items():
-                pusher.push_quota(vo_name, fileset_, quota_, shared=shared)
-
-            if quota.exceeds():
-                exceeding_filesets.append((fileset_name, quota))
-
-    return exceeding_filesets
 
 
 def map_uids_to_names():
