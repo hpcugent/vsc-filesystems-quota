@@ -297,7 +297,6 @@ class QuotaReporter(ConsumerCLI):
 
         quota_list = []
 
-        i = 0  # testing purposes
         for msg in consumer:
 
             usage = self.process_msg(msg)
@@ -305,10 +304,6 @@ class QuotaReporter(ConsumerCLI):
 
             if usage and usage.filesystem in self.system_storage_map:
                 quota_list.append(usage)
-
-            i += 1
-            if i > 10:
-                break
 
         for storage_name in self.options.storage:
 
