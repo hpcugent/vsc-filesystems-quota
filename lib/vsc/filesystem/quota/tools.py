@@ -159,13 +159,13 @@ class DjangoPusher(object):
         """
         params = {
             "fileset": fileset,
-            "used": quota.used,
-            "soft": quota.soft,
-            "hard": quota.hard,
-            "doubt": quota.doubt,
-            "expired": quota.expired[0],
-            "remaining": quota.expired[1] or 0,  # seconds
-            "files_used": quota.files_used,
+            "used": quota.block_usage,
+            "soft": quota.block_soft,
+            "hard": quota.block_hard,
+            "doubt": quota.block_doubt,
+            "expired": quota.block_expired[0],
+            "remaining": quota.block_expired[1] or 0,  # seconds
+            "files_used": quota.files_usage,
             "files_soft": quota.files_soft,
             "files_hard": quota.files_hard,
             "files_doubt": quota.files_doubt,
