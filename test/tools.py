@@ -36,8 +36,7 @@ import vsc.filesystem.quota.tools as tools
 import vsc.config.base as config
 
 from vsc.config.base import VSC_DATA, GENT
-from vsc.filesystem.quota.entities import QuotaUser, QuotaFileset, QuotaInformation
-from vsc.filesystem.quota.tools import DjangoPusher, determine_grace_period, QUOTA_USER_KIND
+from vsc.filesystem.quota.tools import DjangoPusher, determine_grace_period, QUOTA_USER_KIND, UsageInformation
 from vsc.install.testing import TestCase
 
 config.STORAGE_CONFIGURATION_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'filesystem_info.conf')
@@ -79,18 +78,13 @@ class TestProcessing(TestCase):
         storage_name = VSC_DATA
         item = 'vsc40075'
         filesystem = 'kyukondata'
-        quota = QuotaUser(storage_name, filesystem, item)
-        quota.update('vsc400', used=1230, soft=456, hard=789, doubt=0, expired=(False, None), timestamp=None)
-        quota.update('gvo00002', used=1230, soft=456, hard=789, doubt=0, expired=(False, None), timestamp=None)
+        usage1 = UsageInformation(filesystem, 'vsc400', 'vsc40075', block_usage=1230, block_soft=456, block_hard=789, block_doubt=0, block_expired=(False, None), files_usage=100, files_soft=200, files_hard=300, files_doubt=0, files_expired=(False, None))
+        usage2 = UsageInformation(filesystem, 'gvo00002', 'vsc40075', block_usage=1230, block_soft=456, block_hard=789, block_doubt=0, block_expired=(False, None), files_usage=100, files_soft=200, files_hard=300, files_doubt=0, files_expired=(False, None))
 
         storage = config.VscStorage()
-
         client = mock.MagicMock()
 
-        quota_map = {
-            '2540075': quota,
-            '2510042': None,  # should be skipped
-        }
+        usage_list = [usage1, usage2]
         user_map = {
             2540075: 'vsc40075',
             2510042: 'vsc10042',
@@ -98,14 +92,12 @@ class TestProcessing(TestCase):
 
         mock_getpwuid.side_effect=lambda k: user_map.get(k, None)
 
-        tools.process_user_quota(
-            storage, None, storage_name, None, quota_map, user_map, client, dry_run=False, institute=GENT
-        )
+        tools.process_user_quota(storage_name, None, usage_list, user_map, client)
 
         self.assertEqual(mock_django_pusher.call_count, 2)
 
         mock_django_pusher.assert_has_calls(
-            [mock.call('vsc40075', fileset, quota.quota_map[fileset]) for fileset in ['gvo00002', 'vsc400']],
+            [mock.call(usage1), mock.call(usage2)]
             any_order=True,
         )
 
