@@ -369,7 +369,7 @@ class QuotaReporter(ConsumerCLI):
         return usage
 
 
-
+# TODO: move this into gpfsbeat
 def determine_grace_period(grace_string):
     grace = GPFS_GRACE_REGEX.search(grace_string)
     nograce = GPFS_NOGRACE_REGEX.search(grace_string)
