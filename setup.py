@@ -32,10 +32,13 @@ PACKAGE = {
     'install_requires': [
         'vsc-accountpage-clients >= 2.0.0',
         'vsc-base >= 3.0.6',
-        'vsc-config >= 3.0.1',
-        'vsc-filesystems >= 1.2.17',
+        'vsc-config >= 3.11.0',
+        'vsc-filesystems >= 1.3.0',
         'vsc-utils >= 2.0.0',
     ],
+    'extras_require': {
+        'oceanstor': ['vsc-filesystem-oceanstor >= 0.6.0'],
+    },
     'tests_require': ['mock'],
 }
 

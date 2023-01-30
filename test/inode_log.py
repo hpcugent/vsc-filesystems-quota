@@ -29,8 +29,8 @@ Tests for the inode_log.py script in vsc-filesystem-quota.
 @author: Andy Georges
 """
 
-from vsc.filesystem.gpfs import GpfsQuota
-from vsc.filesystem.quota.tools import InodeCritical, process_inodes_information
+from vsc.filesystem.gpfs import StorageQuota
+from vsc.filesystem.quota.inodes import InodeCritical, process_inodes_information
 
 from vsc.install.testing import TestCase
 
@@ -63,7 +63,7 @@ class TestProcessInodesInformation(TestCase):
             }
         }
 
-        self.defaultQuota = GpfsQuota(
+        self.defaultQuota = StorageQuota(
             name="testQuota",
             blockUsage=0,
             blockQuota=0,

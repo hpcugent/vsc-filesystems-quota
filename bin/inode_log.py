@@ -31,7 +31,7 @@ in a zip file, named by date and filesystem.
 @author Andy Georges (Ghent University)
 """
 
-from vsc.filesystem.quota.tools import InodeLog
+from vsc.filesystem.quota.inodes import InodeLog
 
 
 if __name__ == '__main__':
