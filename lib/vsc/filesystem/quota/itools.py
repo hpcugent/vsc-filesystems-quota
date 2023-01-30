@@ -81,8 +81,9 @@ def process_inodes_information(filesets, quota, threshold=0.9, storage='gpfs'):
         used = int(quota[fs_key][0].filesUsage)
 
         if maxinodes > 0 and used > threshold * maxinodes:
-            critical_filesets[fs_info['filesetName']] = InodeCritical(used=used, allocated=allocated,
-                                                                      maxinodes=maxinodes)
+            critical_filesets[fs_info['filesetName']] = InodeCritical(
+                used=used, allocated=allocated, maxinodes=maxinodes
+            )
 
     return critical_filesets
 

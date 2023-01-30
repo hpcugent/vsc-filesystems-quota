@@ -35,16 +35,13 @@ import logging
 import re
 
 from collections import namedtuple
-from pwd import getpwuid, getpwall
-from vsc.utils.script_tools import CLI
-from vsc.reporting.xdmod.consumer import ConsumerCLI
+from vsc.kafka.cli import ConsumerCLI
 
 from vsc.accountpage.client import AccountpageClient
 from vsc.config.base import (
     GENT, STORAGE_SHARED_SUFFIX, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE,
-    VSC, VscStorage
+    VscStorage
 )
-from vsc.utils.mail import VscMail
 
 
 UsageInformation = namedtuple('UsageInformation', [
@@ -126,7 +123,7 @@ class DjangoPusher(object):
             self.count[storage_name] = 0
             self.payload[storage_name] = []
 
-    def push_quota(self, owner, fileset, quota, shared=False):
+    def push_quota(self, owner, quota, shared=False):
         """
         Push quota to accountpage: it belongs to owner (can either be user_id or vo_id),
         in the given fileset and quota.
@@ -136,7 +133,7 @@ class DjangoPusher(object):
         :param shared: is this a shared user/VO quota or not?
         """
         params = {
-            "fileset": fileset,
+            "fileset": quota.fileset,
             "used": quota.block_usage,
             "soft": quota.block_soft,
             "hard": quota.block_hard,
@@ -150,6 +147,7 @@ class DjangoPusher(object):
             "files_expired": quota.files_expired[0],
             "files_remaining": quota.files_expired[1] or 0,  # seconds
         }
+        logging.debug("Pushing quota %s with params %s", quota, params)
 
         if self.kind == QUOTA_USER_KIND:
             params['user'] = owner
@@ -184,7 +182,7 @@ class DjangoPusher(object):
                 raise
 
 
-class QuotaReporter(ConsumerCLI):
+class UsageReporter(ConsumerCLI):
 
     CLI_OPTIONS = {
         'storage': ('the VSC filesystems that are checked by this script', None, 'extend', []),
@@ -259,19 +257,21 @@ class QuotaReporter(ConsumerCLI):
             return None
 
     def do(self, dry_run):
+        # pylint: disable=unused-argument
 
         ap_client = AccountpageClient(token=self.options.access_token)
 
-        user_id_map = map_uids_to_names()
         self.storage = VscStorage()
-
         self.system_storage_map = dict([(self.storage[GENT][k].filesystem, k) for k in self.storage if k != GENT])
+
+        logging.info("storage map: %s", self.system_storage_map )
 
         consumer = self.make_consumer(self.options.group)
         quota_list = []
+
         for msg in consumer:
             usage = self.process_msg(msg)
-            logging.info("Received payload: %s", usage)
+            logging.debug("Received payload: %s", usage)
 
             if usage and usage.filesystem in self.system_storage_map:
                 quota_list.append(usage)
@@ -280,17 +280,22 @@ class QuotaReporter(ConsumerCLI):
 
             logging.info("Processing quota for storage_name %s", storage_name)
 
-            fileset_quota_data = [q for q in quota_list if q.filesystem == storage_name and q.kind == 'FILESET']
+            fileset_quota_data = [
+                q for q in quota_list if self.system_storage_map[q.filesystem] == storage_name and q.kind == 'FILESET'
+            ]
+            logging.debug("Fileset quota for storage %s: %s", storage_name, fileset_quota_data)
             self.process_fileset_quota(storage_name, fileset_quota_data, ap_client)
 
-            usr_quota_data = [q for q in quota_list if q.filesystem == storage_name and q.kind == 'USR']
-            self.process_user_quota(storage_name, usr_quota_data, user_id_map, ap_client)
+            usr_quota_data = [
+                q for q in quota_list if self.system_storage_map[q.filesystem] == storage_name and q.kind == 'USR'
+            ]
+            logging.debug("Usr quota for storage %s: %s", storage_name, usr_quota_data)
+            self.process_user_quota(storage_name, usr_quota_data, ap_client)
 
-    def process_user_quota(self, storage_name, quota_list, user_map, client):
+    def process_user_quota(self, storage_name, quota_list, client):
 
         institute = self.options.host_institute
         path_template = self.storage.path_templates[institute][storage_name]
-        vsc = VSC()
 
         logging.info("Logging user quota to account page")
         logging.debug("Considering the following quota items for pushing: %s", quota_list)
@@ -298,26 +303,19 @@ class QuotaReporter(ConsumerCLI):
         with DjangoPusher(storage_name, client, QUOTA_USER_KIND, self.options.dry_run) as pusher:
             for quota in quota_list:
 
-                user_id = quota.entity
 
-                user_institute = vsc.user_id_to_institute(int(user_id))
-                if user_institute != institute:
+                if not quota.entity.startswith('vsc'):
+                    # no longer a known user, we got the numerical UID, so no need to push info
                     continue
 
-                user_name = user_map.get(int(user_id), None)
-                if not user_name:
-                    try:
-                        user_name = getpwuid(int(user_id)).pw_name
-                    except KeyError:
-                        continue
-
+                user_name = quota.entity
                 fileset_name = path_template['user'](user_name)[1]
                 fileset_re = '^(vsc[1-4]|%s|%s|%s)' % (VO_PREFIX_BY_SITE[institute],
                                                     VO_SHARED_PREFIX_BY_SITE[institute],
                                                     fileset_name)
 
                 if re.search(fileset_re, quota.fileset):
-                    pusher.push_quota(user_name, quota.fileset, quota)
+                    pusher.push_quota(user_name, quota)
 
     def process_fileset_quota(self, storage_name, quota_list, client):
 
@@ -340,8 +338,7 @@ class QuotaReporter(ConsumerCLI):
                     vo_name = fileset_name
                     shared = False
 
-                fileset_ = quota.entity
-                pusher.push_quota(vo_name, fileset_, quota, shared=shared)
+                pusher.push_quota(vo_name, quota, shared=shared)
 
     def _update_usage(self, usage):
         """
@@ -353,7 +350,7 @@ class QuotaReporter(ConsumerCLI):
 
         replication_factor = self.storage[self.system_storage_map[usage.filesystem]].data_replication_factor
         # TODO: check if we should address the inode usage in relation to the replication factor (ideally: no)
-        usage._replace(
+        usage = usage._replace(
             block_usage=int(usage.block_usage) // replication_factor,
             block_soft=int(usage.block_soft) // replication_factor,
             block_hard=int(usage.block_hard) // replication_factor,
@@ -366,6 +363,7 @@ class QuotaReporter(ConsumerCLI):
             files_expired=files_expired,
         )
 
+        logging.debug("Usage after replace: %s", usage)
         return usage
 
 
@@ -397,13 +395,3 @@ def determine_grace_period(grace_string):
         raise QuotaException("Cannot process grace information (%s)" % grace_string)
 
     return expired
-
-
-
-def map_uids_to_names():
-    """Determine the mapping between user ids and user names."""
-    ul = getpwall()
-    d = {}
-    for u in ul:
-        d[u[2]] = u[0]
-    return d

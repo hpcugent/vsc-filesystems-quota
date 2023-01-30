@@ -34,7 +34,7 @@ PACKAGE = {
         'vsc-base >= 3.0.6',
         'vsc-config >= 3.11.0',
         'vsc-filesystems >= 1.3.0',
-        'vsc-utils >= 2.0.0',
+        'vsc-kafka',
     ],
     'extras_require': {
         'oceanstor': ['vsc-filesystem-oceanstor >= 0.6.0'],
