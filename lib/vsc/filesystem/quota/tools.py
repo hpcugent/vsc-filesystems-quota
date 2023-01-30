@@ -30,57 +30,17 @@ Helper functions for all things quota related.
 @author: Ward Poelmans (Vrije Universiteit Brussel)
 """
 
-import gzip
-import json
 import logging
-import os
 import re
-import socket
 import time
 
-from collections import namedtuple
 from pwd import getpwuid, getpwall
-from vsc.utils.script_tools import CLI
 
-from vsc.config.base import (
-    GENT, STORAGE_SHARED_SUFFIX, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE,
-    VSC, INSTITUTE_ADMIN_EMAIL
-)
-from vsc.filesystem.gpfs import GpfsOperations
-from vsc.filesystem.lustre import LustreOperations
+from vsc.config.base import GENT, STORAGE_SHARED_SUFFIX, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE, VSC
 from vsc.filesystem.quota.entities import QuotaUser, QuotaFileset
-from vsc.utils.mail import VscMail
-
-GPFS_GRACE_REGEX = re.compile(
-    r"(?P<days>\d+)\s*days?|(?P<hours>\d+)\s*hours?|(?P<minutes>\d+)\s*minutes?|(?P<expired>expired)"
-)
-
-GPFS_NOGRACE_REGEX = re.compile(r"none", re.I)
 
 QUOTA_USER_KIND = 'user'
 QUOTA_VO_KIND = 'vo'
-
-NAGIOS_CHECK_INTERVAL_THRESHOLD = (6 * 60 + 5) * 60  # 365 minutes -- little over 6 hours.
-INODE_LOG_ZIP_PATH = '/var/log/quota/inode-zips'
-INODE_STORE_LOG_CRITICAL = 1
-
-class QuotaException(Exception):
-    pass
-
-
-InodeCritical = namedtuple("InodeCritical", ['used', 'allocated', 'maxinodes'])
-
-
-CRITICAL_INODE_COUNT_MESSAGE = """
-Dear HPC admins,
-
-The following filesets will be running out of inodes soon (or may already have run out).
-
-%(fileset_info)s
-
-Kind regards,
-Your friendly inode-watching script
-"""
 
 
 class DjangoPusher(object):
@@ -189,13 +149,13 @@ class DjangoPusher(object):
                 raise
 
 
-def process_user_quota(storage, gpfs, storage_name, filesystem, quota_map, user_map, client,
+def process_user_quota(storage, operator, storage_name, filesystem, quota_map, user_map, client,
                        dry_run=False, institute=GENT):
     """
     Wrapper around the new function to keep the old behaviour intact.
     """
     del filesystem
-    del gpfs
+    del operator
 
     exceeding_users = []
     path_template = storage.path_templates[institute][storage_name]
@@ -234,11 +194,10 @@ def process_user_quota(storage, gpfs, storage_name, filesystem, quota_map, user_
     return exceeding_users
 
 
-def get_mmrepquota_maps(quota_map, storage, filesystem, filesets,
-                        replication_factor=1):
+def get_quota_maps(storage, operator, storage_name):
     """Obtain the quota information.
 
-    This function uses vsc.filesystem.gpfs.GpfsOperations to obtain
+    This function uses the storage backend operator to obtain
     quota information for all filesystems known to the storage.
 
     The returned dictionaries contain all information on a per user
@@ -246,92 +205,78 @@ def get_mmrepquota_maps(quota_map, storage, filesystem, filesets,
     quota settings across different filesets are processed correctly.
 
     Returns { "USR": user dictionary, "FILESET": fileset dictionary}.
-
-    @type replication_factor: int, describing the number of copies the FS holds for each file
-    @type metadata_replication_factor: int, describing the number of copies the FS metadata holds for each file
     """
     user_map = {}
     fs_map = {}
 
     timestamp = int(time.time())
 
-    logging.info("ordering USR quota for storage %s", storage)
-    # Iterate over a list of named tuples -- GpfsQuota
-    for (user, gpfs_quota) in quota_map['USR'].items():
-        user_quota = user_map.get(user, QuotaUser(storage, filesystem, user))
+    filesystem = storage[storage_name].filesystem
+
+    quotas = operator().list_quota(devices=filesystem)
+    quota_map = quotas[filesystem]
+
+    quota_type = operator().quota_types.USR.value
+    logging.info("ordering %s quota for storage %s", quota_type, storage_name)
+    # Iterate over a list of named tuples -- StorageQuota
+    for (quota_id, storage_quota) in quota_map[quota_type].items():
+        user = operator().get_quota_owner(quota_id, filesystem)
+        user_quota = user_map.get(user, QuotaUser(storage_name, filesystem, user))
         user_map[user] = _update_quota_entity(
-            filesets,
             user_quota,
-            filesystem,
-            gpfs_quota,
+            storage,
+            operator,
+            storage_name,
+            storage_quota,
             timestamp,
-            replication_factor
         )
 
     logging.info("ordering FILESET quota for storage %s", storage)
-    # Iterate over a list of named tuples -- GpfsQuota
-    for (fileset, gpfs_quota) in quota_map['FILESET'].items():
-        fileset_quota = fs_map.get(fileset, QuotaFileset(storage, filesystem, fileset))
-        fs_map[fileset] = _update_quota_entity(
-            filesets,
+    # Iterate over a list of named tuples -- StorageQuota
+    quota_type = operator().quota_types.FILESET.value
+    for (quota_id, storage_quota) in quota_map[quota_type].items():
+        fileset_id = operator().get_quota_fileset(quota_id, filesystem)
+        fileset_quota = fs_map.get(fileset_id, QuotaFileset(storage_name, filesystem, fileset_id))
+        fs_map[fileset_id] = _update_quota_entity(
             fileset_quota,
-            filesystem,
-            gpfs_quota,
+            storage,
+            operator,
+            storage_name,
+            storage_quota,
             timestamp,
-            replication_factor
         )
 
-    return {"USR": user_map, "FILESET": fs_map}
+    user_label = operator().quota_types.USR.name
+    fileset_label = operator().quota_types.FILESET.name
+    return {user_label: user_map, fileset_label: fs_map}
 
 
-def determine_grace_period(grace_string):
-    grace = GPFS_GRACE_REGEX.search(grace_string)
-    nograce = GPFS_NOGRACE_REGEX.search(grace_string)
-
-    if nograce:
-        expired = (False, None)
-    elif grace:
-        grace = grace.groupdict()
-        grace_time = 0
-        if grace['days']:
-            grace_time = int(grace['days']) * 86400
-        elif grace['hours']:
-            grace_time = int(grace['hours']) * 3600
-        elif grace['minutes']:
-            grace_time = int(grace['minutes']) * 60
-        elif grace['expired']:
-            grace_time = 0
-        else:
-            logging.error("Unprocessed grace groupdict %s (from string %s).",
-                          grace, grace_string)
-            raise QuotaException("Cannot process grace time string")
-        expired = (True, grace_time)
-    else:
-        logging.error("Unknown grace string %s.", grace_string)
-        raise QuotaException("Cannot process grace information (%s)" % grace_string)
-
-    return expired
-
-
-def _update_quota_entity(filesets, entity, filesystem, gpfs_quotas, timestamp, replication_factor=1):
+def _update_quota_entity(entity, storage, operator, storage_name, storage_quotas, timestamp):
     """
     Update the quota information for an entity (user or fileset).
 
-    @type filesets: string
     @type entity: QuotaEntity instance
-    @type filesystem: string
-    @type gpfs_quota: list of GpfsQuota namedtuple instances
+    @type storage: VscStorage object
+    @type operator: StorageOperator object
+    @type storage_name: string
+    @type storage_quota: list of StorageQuota namedtuple instances
     @type timestamp: a timestamp, duh. an integer
-    @type replication_factor: int, describing the number of copies the FS holds for each file
     """
-    for quota in gpfs_quotas:
-        logging.debug("gpfs_quota = %s", quota)
+    if not isinstance(storage_quotas, list):
+        storage_quotas = [storage_quotas]
 
-        block_expired = determine_grace_period(quota.blockGrace)
-        files_expired = determine_grace_period(quota.filesGrace)
+    filesystem = storage[storage_name].filesystem
+    replication_factor = storage[storage_name].data_replication_factor
+
+    for quota in storage_quotas:
+        logging.debug("StorageQuota = %s", quota)
+
+        block_expired, files_expired = operator().determine_grace_periods(quota)
 
         if quota.filesetname:
-            fileset_name = filesets[filesystem][quota.filesetname]['filesetName']
+            # filesetname actually has the fileset ID linked to this fileset/user/group quota
+            # convert to its actual fileset name (e.g. filesetName in GPFS)
+            fileset_name = operator().get_fileset_name(quota.filesetname, filesystem)
         else:
             fileset_name = None
 
@@ -357,18 +302,19 @@ def _update_quota_entity(filesets, entity, filesystem, gpfs_quotas, timestamp, r
     return entity
 
 
-def process_fileset_quota(storage, gpfs, storage_name, filesystem, quota_map, client, dry_run=False, institute=GENT):
+def process_fileset_quota(storage, operator, storage_name, filesystem, quota_map, client,
+                          dry_run=False, institute=GENT):
     """wrapper around the new function to keep the old behaviour intact"""
     del storage
-    filesets = gpfs.list_filesets()
+
     exceeding_filesets = []
 
     logging.info("Logging VO quota to account page")
     logging.debug("Considering the following quota items for pushing: %s", quota_map)
 
     with DjangoPusher(storage_name, client, QUOTA_VO_KIND, dry_run) as pusher:
-        for (fileset, quota) in quota_map.items():
-            fileset_name = filesets[filesystem][fileset]['filesetName']
+        for (fileset_id, quota) in quota_map.items():
+            fileset_name = operator().get_fileset_name(fileset_id, filesystem)
             logging.debug("Fileset %s quota: %s", fileset_name, quota)
 
             if not fileset_name.startswith(VO_PREFIX_BY_SITE[institute]):
@@ -397,123 +343,3 @@ def map_uids_to_names():
     for u in ul:
         d[u[2]] = u[0]
     return d
-
-
-def process_inodes_information(filesets, quota, threshold=0.9, storage='gpfs'):
-    """
-    Determines which filesets have reached a critical inode limit.
-
-    For this it uses the inode quota information passed in the quota argument and compares this with the maximum number
-    of inodes that can be allocated for the given fileset. The default threshold is placed at 90%.
-
-    @returns: dict with (filesetname, InodeCritical) key-value pairs
-    """
-    critical_filesets = dict()
-
-    for (fs_key, fs_info) in filesets.items():
-        allocated = int(fs_info['allocInodes']) if storage == 'gpfs' else 0
-        maxinodes = int(fs_info['maxInodes']) if storage == 'gpfs' else int(quota[fs_key][0].filesLimit)
-        used = int(quota[fs_key][0].filesUsage)
-
-        if maxinodes > 0 and used > threshold * maxinodes:
-            critical_filesets[fs_info['filesetName']] = InodeCritical(used=used, allocated=allocated,
-                                                                      maxinodes=maxinodes)
-
-    return critical_filesets
-
-
-class InodeLog(CLI):
-
-
-    # Note: debug option is provided by generaloption
-    # Note: other settings, e.g., ofr each cluster will be obtained from the configuration file
-    CLI_OPTIONS = {
-        'nagios-check-interval-threshold': NAGIOS_CHECK_INTERVAL_THRESHOLD,
-        'location': ('path to store the gzipped files', None, 'store', INODE_LOG_ZIP_PATH),
-        'backend': ('Storage backend', None, 'store', 'gpfs'),
-        'host_institute': ('Name of the institute where this script is being run', str, 'store', GENT),
-        'mailconfig': ("Full configuration for the mail sender", None, "store", None),
-    }
-
-    def mail_admins(self, critical_filesets, dry_run=True, host_institute=GENT):
-        """Send email to the HPC admin about the inodes running out soonish."""
-        mail = VscMail(mail_config=self.options.mailconfig)
-
-        message = CRITICAL_INODE_COUNT_MESSAGE
-        fileset_info = []
-        for (fs_name, fs_info) in critical_filesets.items():
-            for (fileset_name, inode_info) in fs_info.items():
-                fileset_info.append("%s - %s: used %d (%d%%) of max %d [allocated: %d]" %
-                                    (fs_name,
-                                    fileset_name,
-                                    inode_info.used,
-                                    int(inode_info.used * 100 / inode_info.maxinodes),
-                                    inode_info.maxinodes,
-                                    inode_info.allocated))
-
-        message = message % ({'fileset_info': "\n".join(fileset_info)})
-
-        if dry_run:
-            logging.info("Would have sent this message: %s", message)
-        else:
-            mail.sendTextMail(mail_to=INSTITUTE_ADMIN_EMAIL[host_institute],
-                            mail_from=INSTITUTE_ADMIN_EMAIL[host_institute],
-                            reply_to=INSTITUTE_ADMIN_EMAIL[host_institute],
-                            mail_subject="Inode space(s) running out on %s" % (socket.gethostname()),
-                            message=message)
-
-
-    def do(self, dry_run):
-        """
-        Get the inode info
-        """
-        stats = {}
-
-        backend = self.options.backend
-        if backend == 'gpfs':
-            storage_backend = GpfsOperations()
-        elif backend == 'lustre':
-            storage_backend = LustreOperations()
-        else:
-            logging.error("Backend %s not supported", backend)
-            raise
-
-        filesets = storage_backend.list_filesets()
-        quota = storage_backend.list_quota()
-
-        if not os.path.exists(self.options.location):
-            os.makedirs(self.options.location, 0o755)
-
-        critical_filesets = dict()
-
-        for filesystem in filesets:
-            stats["%s_inodes_log_critical" % (filesystem,)] = INODE_STORE_LOG_CRITICAL
-            try:
-                filename = "%s_inodes_%s_%s.gz" % (backend, time.strftime("%Y%m%d-%H:%M"), filesystem)
-                path = os.path.join(self.options.location, filename)
-                zipfile = gzip.open(path, 'wb', 9)  # Compress to the max
-                zipfile.write(json.dumps(filesets[filesystem]).encode())
-                zipfile.close()
-                stats["%s_inodes_log" % (filesystem,)] = 0
-                logging.info("Stored inodes information for FS %s", filesystem)
-
-                cfs = process_inodes_information(filesets[filesystem], quota[filesystem]['FILESET'],
-                                                threshold=0.9, storage=backend)
-                logging.info("Processed inodes information for filesystem %s", filesystem)
-                if cfs:
-                    critical_filesets[filesystem] = cfs
-                    logging.info("Filesystem %s has at least %d filesets reaching the limit", filesystem, len(cfs))
-
-            except Exception:
-                stats["%s_inodes_log" % (filesystem,)] = 1
-                logging.exception("Failed storing inodes information for FS %s", filesystem)
-
-        logging.info("Critical filesets: %s", critical_filesets)
-
-        if critical_filesets:
-            self.mail_admins(
-                critical_filesets,
-                dry_run=self.options.dry_run,
-                host_institute=self.options.host_institute
-            )
-

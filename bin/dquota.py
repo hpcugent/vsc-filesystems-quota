@@ -39,8 +39,8 @@ Script to check for quota transgressions and notify the offending users.
 
 from vsc.accountpage.client import AccountpageClient
 from vsc.config.base import VscStorage, GENT
-from vsc.filesystem.gpfs import GpfsOperations
-from vsc.filesystem.quota.tools import get_mmrepquota_maps
+from vsc.filesystem.operator import StorageOperator
+from vsc.filesystem.quota.tools import get_quota_maps
 from vsc.filesystem.quota.tools import process_user_quota, process_fileset_quota, map_uids_to_names
 from vsc.utils.script_tools import ExtendedSimpleOption
 
@@ -70,50 +70,41 @@ def main():
         client = AccountpageClient(token=opts.options.access_token)
 
         user_id_map = map_uids_to_names()
-        gpfs = GpfsOperations()
         storage = VscStorage()
 
-        target_filesystems = [storage[s].filesystem for s in opts.options.storage]
-
-        filesystems = gpfs.list_filesystems(device=target_filesystems).keys()
-        logger.debug("Found the following GPFS filesystems: %s", filesystems)
-
-        filesets = gpfs.list_filesets(devices=target_filesystems)
-        logger.debug("Found the following GPFS filesets: %s", filesets)
-
-        quota = gpfs.list_quota(devices=target_filesystems)
         exceeding_filesets = {}
         exceeding_users = {}
         stats = {}
 
         for storage_name in opts.options.storage:
+            operator = StorageOperator(storage[storage_name])
 
-            logger.info("Processing quota for storage_name %s", storage_name)
-            filesystem = storage[storage_name].filesystem
-            replication_factor = storage[storage_name].data_replication_factor
+            logger.info("Processing quota for storage %s", storage_name)
+            target_filesystem = storage[storage_name].filesystem
 
-            if filesystem not in filesystems:
-                logger.error("Non-existent filesystem %s", filesystem)
+            filesystems = operator().list_filesystems(device=target_filesystem).keys()
+            logger.debug("Found the following filesystems: %s", filesystems)
+
+            if target_filesystem not in filesystems:
+                logger.error("Non-existent filesystem %s", target_filesystem)
                 continue
 
-            if filesystem not in quota.keys():
-                logger.error("No quota defined for storage_name %s [%s]", storage_name, filesystem)
+            quota = operator().list_quota(devices=target_filesystem)
+            user_quota_type = operator().quota_types.USR.name
+            fileset_quota_type = operator().quota_types.FILESET.name
+
+            if target_filesystem not in quota.keys():
+                logger.error("No quota defined for storage %s [%s]", storage_name, target_filesystem)
                 continue
 
-            quota_storage_map = get_mmrepquota_maps(
-                quota[filesystem],
-                storage_name,
-                filesystem,
-                filesets,
-                replication_factor,
-            )
+            quota_storage_map = get_quota_maps(storage, operator, storage_name)
 
             exceeding_filesets[storage_name] = process_fileset_quota(
-                storage, gpfs, storage_name, filesystem, quota_storage_map['FILESET'],
+                storage, operator, storage_name, target_filesystem, quota_storage_map[fileset_quota_type],
                 client, dry_run=opts.options.dry_run, institute=opts.options.host_institute)
 
             exceeding_users[storage_name] = process_user_quota(
-                storage, gpfs, storage_name, None, quota_storage_map['USR'],
+                storage, operator, storage_name, None, quota_storage_map[user_quota_type],
                 user_id_map, client, dry_run=opts.options.dry_run, institute=opts.options.host_institute)
 
             stats["%s_fileset_critical" % (storage_name,)] = QUOTA_FILESETS_CRITICAL
