@@ -1,3 +1,4 @@
+#!/usr/bin/env python
 #
 # Copyright 2021-2023 Ghent University
 #
