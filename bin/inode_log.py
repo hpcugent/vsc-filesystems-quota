@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 #
 # Copyright 2013-2023 Ghent University
 #
