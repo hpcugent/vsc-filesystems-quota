@@ -192,7 +192,7 @@ class UsageReporter(ConsumerCLI):
         'group': ("Kafka consumer group", None, "store", "ap-quota"),
     }
 
-    def process_msg(self, msg):
+    def convert_msg(self, msg):
         """
         Process msg as JSON.
         Return None on failure or if the message holds no usage information.
@@ -256,6 +256,12 @@ class UsageReporter(ConsumerCLI):
             logging.error("msg has no value %s (%s)", msg, type(msg))
             return None
 
+    def process_event(self, event, dry_run):
+
+        if event and event.filesystem in self.system_storage_map:
+            self.quota_list.append(event)
+
+
     def do(self, dry_run):
         # pylint: disable=unused-argument
 
@@ -266,15 +272,7 @@ class UsageReporter(ConsumerCLI):
 
         logging.info("storage map: %s", self.system_storage_map )
 
-        consumer = self.make_consumer(self.options.group)
-        quota_list = []
-
-        for msg in consumer:
-            usage = self.process_msg(msg)
-            logging.debug("Received payload: %s", usage)
-
-            if usage and usage.filesystem in self.system_storage_map:
-                quota_list.append(usage)
+        super(UsageReporter, self).do(dry_run)
 
         for storage_name in self.options.storage:
 
