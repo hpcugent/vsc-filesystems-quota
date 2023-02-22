@@ -192,7 +192,7 @@ class UsageReporter(ConsumerCLI):
         'group': ("Kafka consumer group", None, "store", "ap-quota"),
     }
 
-    def process_msg(self, msg):
+    def convert_msg(self, msg):
         """
         Process msg as JSON.
         Return None on failure or if the message holds no usage information.
@@ -256,6 +256,12 @@ class UsageReporter(ConsumerCLI):
             logging.error("msg has no value %s (%s)", msg, type(msg))
             return None
 
+    def process_event(self, event, dry_run):
+
+        if event and event.filesystem in self.system_storage_map:
+            self.quota_list.append(event)
+
+
     def do(self, dry_run):
         # pylint: disable=unused-argument
 
@@ -266,28 +272,23 @@ class UsageReporter(ConsumerCLI):
 
         logging.info("storage map: %s", self.system_storage_map )
 
-        consumer = self.make_consumer(self.options.group)
-        quota_list = []
-
-        for msg in consumer:
-            usage = self.process_msg(msg)
-            logging.debug("Received payload: %s", usage)
-
-            if usage and usage.filesystem in self.system_storage_map:
-                quota_list.append(usage)
+        self.quota_list = []
+        super().do(dry_run)
 
         for storage_name in self.options.storage:
 
             logging.info("Processing quota for storage_name %s", storage_name)
 
             fileset_quota_data = [
-                q for q in quota_list if self.system_storage_map[q.filesystem] == storage_name and q.kind == 'FILESET'
+                q for q in self.quota_list
+                if self.system_storage_map[q.filesystem] == storage_name and q.kind == 'FILESET'
             ]
             logging.debug("Fileset quota for storage %s: %s", storage_name, fileset_quota_data)
             self.process_fileset_quota(storage_name, fileset_quota_data, ap_client)
 
             usr_quota_data = [
-                q for q in quota_list if self.system_storage_map[q.filesystem] == storage_name and q.kind == 'USR'
+                q for q in self.quota_list
+                if self.system_storage_map[q.filesystem] == storage_name and q.kind == 'USR'
             ]
             logging.debug("Usr quota for storage %s: %s", storage_name, usr_quota_data)
             self.process_user_quota(storage_name, usr_quota_data, ap_client)
