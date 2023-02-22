@@ -273,7 +273,7 @@ class UsageReporter(ConsumerCLI):
         logging.info("storage map: %s", self.system_storage_map )
 
         self.quota_list = []
-        super(UsageReporter, self).do(dry_run)
+        super().do(dry_run)
 
         for storage_name in self.options.storage:
 
