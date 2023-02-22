@@ -261,7 +261,11 @@ class UsageReporter(ConsumerCLI):
     def process_event(self, event, dry_run):
 
         if event and event.filesystem in self.system_storage_map:
-            self.usage_list.append(event)
+            cache_key = (event.filesystem, event.fileset, event.entity, event.kind)
+            cached_usage = self.cache.get(cache_key, default=None)
+            if cached_usage != event:
+                self.cache.set(cache_key, event, expire=864000)
+                self.usage_list.append(event)
 
 
     def do(self, dry_run):
@@ -275,17 +279,11 @@ class UsageReporter(ConsumerCLI):
         logging.info("storage map: %s", self.system_storage_map )
 
         self.usage_list = []
-        cache = dc.Cache(DISK_CACHE_LOCATION)
-        super(UsageReporter, self).do(dry_run)
-        if self.usage_list and self.usage.filesystem in self.system_storage_map:
-            # check for cached version
-            cache_key = (usage.filesystem, usage.fileset, usage.entity, usage.kind)
-            cached_usage = cache.get(cache_key, default=None)
-            if cached_usage != usage:
-                cache.set(cache_key, usage, expire=7200)
-                usage_list.append(usage)
 
-        cache.close()
+        with dc.Cache(DISK_CACHE_LOCATION) as cache:
+            self.cache = cache
+            super(UsageReporter, self).do(dry_run)
+
 
         for storage_name in self.options.storage:
 
