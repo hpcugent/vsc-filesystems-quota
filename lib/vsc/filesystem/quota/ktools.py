@@ -280,13 +280,15 @@ class UsageReporter(ConsumerCLI):
             logging.info("Processing quota for storage_name %s", storage_name)
 
             fileset_quota_data = [
-                q for q in quota_list if self.system_storage_map[q.filesystem] == storage_name and q.kind == 'FILESET'
+                q for q in self.quota_list
+                if self.system_storage_map[q.filesystem] == storage_name and q.kind == 'FILESET'
             ]
             logging.debug("Fileset quota for storage %s: %s", storage_name, fileset_quota_data)
             self.process_fileset_quota(storage_name, fileset_quota_data, ap_client)
 
             usr_quota_data = [
-                q for q in quota_list if self.system_storage_map[q.filesystem] == storage_name and q.kind == 'USR'
+                q for q in self.quota_list
+                if self.system_storage_map[q.filesystem] == storage_name and q.kind == 'USR'
             ]
             logging.debug("Usr quota for storage %s: %s", storage_name, usr_quota_data)
             self.process_user_quota(storage_name, usr_quota_data, ap_client)
