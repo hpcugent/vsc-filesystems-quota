@@ -34,7 +34,6 @@ This can be changed by using the project option
 
 @author: Kenneth Waegeman (Ghent University)
 """
-from __future__ import print_function
 from vsc.utils.script_tools import SimpleOption
 from vsc.filesystem.lustre import LustreOperations
 

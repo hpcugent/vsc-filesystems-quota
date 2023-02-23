@@ -36,8 +36,6 @@ the account page for cache quota information (with an accuracy of 10 minutes).
 
 @author: Andy Georges (Ghent University)
 """
-from __future__ import print_function
-
 def main():
 
     print("Please consult the VSC account page for quota information at")
