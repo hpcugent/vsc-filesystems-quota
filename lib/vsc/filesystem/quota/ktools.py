@@ -30,6 +30,7 @@ Helper functions for all things quota related.
 @author: Ward Poelmans (Vrije Universiteit Brussel)
 """
 
+import diskcache as dc
 import json
 import logging
 import re
@@ -43,6 +44,7 @@ from vsc.config.base import (
     VscStorage
 )
 
+DISK_CACHE_LOCATION = "/var/cache/kusage.cache"
 
 UsageInformation = namedtuple('UsageInformation', [
     'filesystem', # filesystem name
@@ -259,7 +261,11 @@ class UsageReporter(ConsumerCLI):
     def process_event(self, event, dry_run):
 
         if event and event.filesystem in self.system_storage_map:
-            self.quota_list.append(event)
+            cache_key = (event.filesystem, event.fileset, event.entity, event.kind)
+            cached_usage = self.cache.get(cache_key, default=None)
+            if cached_usage != event:
+                self.cache.set(cache_key, event, expire=864000)
+                self.usage_list.append(event)
 
 
     def do(self, dry_run):
@@ -272,22 +278,23 @@ class UsageReporter(ConsumerCLI):
 
         logging.info("storage map: %s", self.system_storage_map )
 
-        self.quota_list = []
-        super().do(dry_run)
+        self.usage_list = []
+        with dc.Cache(DISK_CACHE_LOCATION) as cache:
+            self.cache = cache
+            super().do(dry_run)
 
         for storage_name in self.options.storage:
 
             logging.info("Processing quota for storage_name %s", storage_name)
-
             fileset_quota_data = [
-                q for q in self.quota_list
+                q for q in self.usage_list
                 if self.system_storage_map[q.filesystem] == storage_name and q.kind == 'FILESET'
             ]
             logging.debug("Fileset quota for storage %s: %s", storage_name, fileset_quota_data)
             self.process_fileset_quota(storage_name, fileset_quota_data, ap_client)
 
             usr_quota_data = [
-                q for q in self.quota_list
+                q for q in self.usage_list
                 if self.system_storage_map[q.filesystem] == storage_name and q.kind == 'USR'
             ]
             logging.debug("Usr quota for storage %s: %s", storage_name, usr_quota_data)
