@@ -256,13 +256,32 @@ class UsageReporter(ConsumerCLI):
             logging.error("msg has no value %s (%s)", msg, type(msg))
             return None
 
+    def process_event(self, event, dry_run):
+
+        if event and event.filesystem in self.system_storage_map.values():
+            cache_key = (event.filesystem, event.fileset, event.entity, event.kind)
+            cached_usage = self.cache.get(cache_key, default=None)
+            if cached_usage != event:
+                self.cache.set(cache_key, event, expire=864000)
+                logging.debug(f"Event {event} differs from {cached_usage}, adding to usage list")
+            else:
+                logging.debug(f"Event {event} equals cached version")
+
+            self.usage_list.append(event)
+
+
     def do(self, dry_run):
         # pylint: disable=unused-argument
 
         ap_client = AccountpageClient(token=self.options.access_token)
 
         self.storage = VscStorage()
-        self.system_storage_map = dict([(self.storage[GENT][k].filesystem, k) for k in self.storage if k != GENT])
+        self.system_storage_map = dict([(k, self.storage[GENT][k].filesystem) for k in self.storage if k != GENT])
+        self.replication_factors = dict([
+            (self.storage[GENT][k].filesystem, self.storage[GENT][k].data_replication_factor)
+            for k in self.storage if k != GENT
+        ])
+
 
         logging.info("storage map: %s", self.system_storage_map )
 
@@ -281,13 +300,15 @@ class UsageReporter(ConsumerCLI):
             logging.info("Processing quota for storage_name %s", storage_name)
 
             fileset_quota_data = [
-                q for q in quota_list if self.system_storage_map[q.filesystem] == storage_name and q.kind == 'FILESET'
+                q for q in self.usage_list
+                if self.system_storage_map[storage_name] == q.filesystem and q.kind == 'FILESET'
             ]
             logging.debug("Fileset quota for storage %s: %s", storage_name, fileset_quota_data)
             self.process_fileset_quota(storage_name, fileset_quota_data, ap_client)
 
             usr_quota_data = [
-                q for q in quota_list if self.system_storage_map[q.filesystem] == storage_name and q.kind == 'USR'
+                q for q in self.usage_list
+                if self.system_storage_map[storage_name] == q.filesystem and q.kind == 'USR'
             ]
             logging.debug("Usr quota for storage %s: %s", storage_name, usr_quota_data)
             self.process_user_quota(storage_name, usr_quota_data, ap_client)
@@ -348,7 +369,8 @@ class UsageReporter(ConsumerCLI):
         block_expired = determine_grace_period(usage.block_expired)
         files_expired = determine_grace_period(usage.files_expired)
 
-        replication_factor = self.storage[self.system_storage_map[usage.filesystem]].data_replication_factor
+        replication_factor = self.replication_factors[usage.filesystem]
+
         # TODO: check if we should address the inode usage in relation to the replication factor (ideally: no)
         usage = usage._replace(
             block_usage=int(usage.block_usage) // replication_factor,
@@ -395,3 +417,4 @@ def determine_grace_period(grace_string):
         raise QuotaException("Cannot process grace information (%s)" % grace_string)
 
     return expired
+
