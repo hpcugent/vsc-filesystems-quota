@@ -30,6 +30,7 @@ Helper functions for all things quota related.
 @author: Ward Poelmans (Vrije Universiteit Brussel)
 """
 
+import diskcache as dc
 import json
 import logging
 import re
@@ -43,6 +44,7 @@ from vsc.config.base import (
     VscStorage
 )
 
+DISK_CACHE_LOCATION = "/var/cache/kusage.cache"
 
 UsageInformation = namedtuple('UsageInformation', [
     'filesystem', # filesystem name
@@ -192,7 +194,7 @@ class UsageReporter(ConsumerCLI):
         'group': ("Kafka consumer group", None, "store", "ap-quota"),
     }
 
-    def process_msg(self, msg):
+    def convert_msg(self, msg):
         """
         Process msg as JSON.
         Return None on failure or if the message holds no usage information.
@@ -266,9 +268,7 @@ class UsageReporter(ConsumerCLI):
                 logging.debug(f"Event {event} differs from {cached_usage}, adding to usage list")
             else:
                 logging.debug(f"Event {event} equals cached version")
-
-            self.usage_list.append(event)
-
+                self.usage_list.append(event)
 
     def do(self, dry_run):
         # pylint: disable=unused-argument
@@ -285,20 +285,14 @@ class UsageReporter(ConsumerCLI):
 
         logging.info("storage map: %s", self.system_storage_map )
 
-        consumer = self.make_consumer(self.options.group)
-        quota_list = []
-
-        for msg in consumer:
-            usage = self.process_msg(msg)
-            logging.debug("Received payload: %s", usage)
-
-            if usage and usage.filesystem in self.system_storage_map:
-                quota_list.append(usage)
+        self.usage_list = []
+        with dc.Cache(DISK_CACHE_LOCATION) as cache:
+            self.cache = cache
+            super().do(dry_run)
 
         for storage_name in self.options.storage:
 
             logging.info("Processing quota for storage_name %s", storage_name)
-
             fileset_quota_data = [
                 q for q in self.usage_list
                 if self.system_storage_map[storage_name] == q.filesystem and q.kind == 'FILESET'

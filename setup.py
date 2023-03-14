@@ -24,16 +24,17 @@ import vsc.install.shared_setup as shared_setup
 from vsc.install.shared_setup import ag
 
 PACKAGE = {
-    'version': '2.0.1',
+    'version': '2.1.2',
     'author': [ag],
     'maintainer': [ag],
     'excluded_pkgs_rpm': ['vsc', 'vsc.filesystem', 'vsc.filesystem.quota'],
     'setup_requires': ['vsc-install >= 0.15.3'],
     'install_requires': [
+        'diskcache >= 5.4.0',
         'vsc-accountpage-clients >= 2.0.0',
         'vsc-base >= 3.0.6',
         'vsc-config >= 3.11.0',
-        'vsc-filesystems >= 1.3.0',
+        'vsc-filesystems >= 2.0.0',
         'vsc-kafka',
     ],
     'extras_require': {
