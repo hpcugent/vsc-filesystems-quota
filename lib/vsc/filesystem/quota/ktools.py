@@ -263,12 +263,12 @@ class UsageReporter(ConsumerCLI):
         if event and event.filesystem in self.system_storage_map.values():
             cache_key = (event.filesystem, event.fileset, event.entity, event.kind)
             cached_usage = self.cache.get(cache_key, default=None)
-            if cached_usage != event:
+            if cached_usage == event:
+                logging.debug(f"Event {event} equals cached version")
+            else:
                 self.cache.set(cache_key, event, expire=864000)
                 logging.debug(f"Event {event} differs from {cached_usage}, adding to usage list")
                 self.usage_list.append(event)
-            else:
-                logging.debug(f"Event {event} equals cached version")
 
     def do(self, dry_run):
         # pylint: disable=unused-argument
