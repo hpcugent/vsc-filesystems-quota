@@ -265,7 +265,10 @@ class UsageReporter(ConsumerCLI):
             cached_usage = self.cache.get(cache_key, default=None)
             if cached_usage != event:
                 self.cache.set(cache_key, event, expire=864000)
+                logging.debug(f"Event {event} differs from {cached_usage}, adding to usage list")
                 self.usage_list.append(event)
+            else:
+                logging.debug(f"Event {event} equals cached version")
 
 
     def do(self, dry_run):
