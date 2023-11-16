@@ -73,7 +73,7 @@ def process_inodes_information(filesets, quota, threshold=0.9, storage='gpfs'):
 
     @returns: dict with (filesetname, InodeCritical) key-value pairs
     """
-    critical_filesets = dict()
+    critical_filesets = {}
 
     for (fs_key, fs_info) in filesets.items():
         allocated = int(fs_info['allocInodes']) if storage == 'gpfs' else 0
@@ -109,13 +109,11 @@ class InodeLog(CLI):
         fileset_info = []
         for (fs_name, fs_info) in critical_filesets.items():
             for (fileset_name, inode_info) in fs_info.items():
-                fileset_info.append("%s - %s: used %d (%d%%) of max %d [allocated: %d]" %
-                                    (fs_name,
-                                    fileset_name,
-                                    inode_info.used,
-                                    int(inode_info.used * 100 / inode_info.maxinodes),
-                                    inode_info.maxinodes,
-                                    inode_info.allocated))
+                fileset_info.append(
+                    f"{fs_name} - {fileset_name}: used {inode_info.used} "
+                    f"({int(inode_info.used * 100 / inode_info.maxinodes)}%) of max "
+                    f"{inode_info.maxinodes} [allocated: {inode_info.allocated}]")
+
 
         message = message % ({'fileset_info': "\n".join(fileset_info)})
 
@@ -125,7 +123,7 @@ class InodeLog(CLI):
             mail.sendTextMail(mail_to=INSTITUTE_ADMIN_EMAIL[host_institute],
                             mail_from=INSTITUTE_ADMIN_EMAIL[host_institute],
                             reply_to=INSTITUTE_ADMIN_EMAIL[host_institute],
-                            mail_subject="Inode space(s) running out on %s" % (socket.gethostname()),
+                            mail_subject=f"Inode space(s) running out on {socket.gethostname()}",
                             message=message)
 
 
@@ -141,8 +139,9 @@ class InodeLog(CLI):
         elif backend == 'lustre':
             storage_backend = LustreOperations()
         else:
-            logging.error("Backend %s not supported", backend)
-            raise
+            msg = f"Backend {backend} not supported"
+            logging.error(msg)
+            raise ValueError(msg)
 
         filesets = storage_backend.list_filesets()
         quota = storage_backend.list_quota()
@@ -153,14 +152,14 @@ class InodeLog(CLI):
         critical_filesets = dict()
 
         for filesystem in filesets:
-            stats["%s_inodes_log_critical" % (filesystem,)] = INODE_STORE_LOG_CRITICAL
+            stats[f"{filesystem}_inodes_log_critical"] = INODE_STORE_LOG_CRITICAL
             try:
-                filename = "%s_inodes_%s_%s.gz" % (backend, time.strftime("%Y%m%d-%H:%M"), filesystem)
+                filename = f"{backend}_inodes_{time.strftime('%Y%m%d-%H:%M')}_{filesystem}.gz"
                 path = os.path.join(self.options.location, filename)
                 zipfile = gzip.open(path, 'wb', 9)  # Compress to the max
                 zipfile.write(json.dumps(filesets[filesystem]).encode())
                 zipfile.close()
-                stats["%s_inodes_log" % (filesystem,)] = 0
+                stats[f"{filesystem}_inodes_log"] = 0
                 logging.info("Stored inodes information for FS %s", filesystem)
 
                 cfs = process_inodes_information(filesets[filesystem], quota[filesystem]['FILESET'],
@@ -171,7 +170,7 @@ class InodeLog(CLI):
                     logging.info("Filesystem %s has at least %d filesets reaching the limit", filesystem, len(cfs))
 
             except Exception:
-                stats["%s_inodes_log" % (filesystem,)] = 1
+                stats[f"{filesystem}_inodes_log"] = 1
                 logging.exception("Failed storing inodes information for FS %s", filesystem)
 
         logging.info("Critical filesets: %s", critical_filesets)
