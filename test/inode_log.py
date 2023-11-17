@@ -45,7 +45,7 @@ class TestProcessInodesInformation(TestCase):
         """
         Add example cases.
         """
-        super(TestProcessInodesInformation, self).setUp()
+        super().setUp()
 
         # names reflect the number of used inodes (max is set by default at 100, so this effectively is a percentage.
         self.names = (10, 95)
@@ -53,12 +53,12 @@ class TestProcessInodesInformation(TestCase):
         self.filesets = {
             self.names[0]: {
                 'allocInodes': 90,
-                'filesetName': '%d' % self.names[0],
+                'filesetName': f'{int(self.names[0])}',
                 'maxInodes': 100,
             },
             self.names[1]: {
                 'allocInodes': 90,
-                'filesetName': '%d' % self.names[1],
+                'filesetName': f'{int(self.names[1])}',
                 'maxInodes': 100,
             }
         }

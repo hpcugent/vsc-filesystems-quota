@@ -34,11 +34,11 @@ This can be changed by using the project option
 
 @author: Kenneth Waegeman (Ghent University)
 """
-from vsc.utils.script_tools import SimpleOption
-from vsc.filesystem.lustre import LustreOperations
-
 import os
 import grp
+
+from vsc.utils.script_tools import SimpleOption
+from vsc.filesystem.lustre import LustreOperations
 
 DODRIO_PROJECT_PREFIX = 'gpr_compute'
 
@@ -56,7 +56,7 @@ def main():
             try:
                 gid = grp.getgrnam(grname).gr_gid
             except KeyError:
-                gid = grp.getgrnam('%s_%s' % (DODRIO_PROJECT_PREFIX, grname)).gr_gid
+                gid = grp.getgrnam(f'{DODRIO_PROJECT_PREFIX}_{grname}').gr_gid
             projects.append({'name': grname, 'gid' : gid})
 
     else:
@@ -74,7 +74,7 @@ def main():
         print("Userquota:\n" + userquota)
         for project in projects:
             prjquota = lustop.get_project_quota(project['gid'], path)
-            print("Quota for project %s:\n%s" % (project['name'], prjquota))
+            print(f"Quota for project {project['name']}:\n{prjquota}")
 
 if __name__ == '__main__':
     main()

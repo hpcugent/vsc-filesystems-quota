@@ -65,8 +65,14 @@ class TestProcessing(TestCase):
 
         storage_name = VSC_DATA
         filesystem = 'kyukondata'
-        usage1 = tools.UsageInformation(filesystem, 'vsc400', 'vsc40075', "USR", block_usage=1230, block_soft=456, block_hard=789, block_doubt=0, block_expired=(False, None), files_usage=100, files_soft=200, files_hard=300, files_doubt=0, files_expired=(False, None))
-        usage2 = tools.UsageInformation(filesystem, 'gvo00002', 'vsc40075', "USR", block_usage=1230, block_soft=456, block_hard=789, block_doubt=0, block_expired=(False, None), files_usage=100, files_soft=200, files_hard=300, files_doubt=0, files_expired=(False, None))
+        usage1 = tools.UsageInformation(
+            filesystem, 'vsc400', 'vsc40075', "USR", block_usage=1230, block_soft=456, block_hard=789, block_doubt=0,
+            block_expired=(False, None), files_usage=100, files_soft=200, files_hard=300, files_doubt=0,
+            files_expired=(False, None))
+        usage2 = tools.UsageInformation(
+            filesystem, 'gvo00002', 'vsc40075', "USR", block_usage=1230, block_soft=456, block_hard=789, block_doubt=0,
+            block_expired=(False, None), files_usage=100, files_soft=200, files_hard=300, files_doubt=0,
+            files_expired=(False, None))
 
         client = mock.MagicMock()
 
@@ -90,7 +96,7 @@ class TestProcessing(TestCase):
 
         with DjangoPusher("my_storage", client, QUOTA_USER_KIND, False) as pusher:
             for i in range(0, 101):
-                pusher.push("my_storage", "pushing %d" % i)
+                pusher.push("my_storage", f"pushing {int(i)}")
 
             self.assertEqual(pusher.payload, {"my_storage": [], "my_storage_SHARED": []})
 
