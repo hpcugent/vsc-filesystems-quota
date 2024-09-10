@@ -82,23 +82,23 @@ def main():
             os.makedirs(opts.options.location, 0o755)
 
         for key in quota:
-            stats["%s_quota_log_critical" % (key,)] = QUOTA_STORE_LOG_CRITICAL
+            stats[f"{key}_quota_log_critical"] = QUOTA_STORE_LOG_CRITICAL
             try:
-                filename = "%s_quota_%s_%s.gz" % (backend, time.strftime("%Y%m%d-%H:%M"), key)
+                filename = f"{backend}_quota_{time.strftime('%Y%m%d-%H:%M')}_{key}.gz"
                 path = os.path.join(opts.options.location, filename)
                 zipfile = gzip.open(path, 'wb', 9)  # Compress to the max
                 zipfile.write(json.dumps(quota[key]).encode())
                 zipfile.close()
-                stats["%s_quota_log" % (key,)] = 0
+                stats[f"{key}_quota_log"] = 0
                 logger.info("Stored quota information for FS %s", key)
             except Exception:
-                stats["%s_quota_log" % (key,)] = 1
+                stats[f"{key}_quota_log"] = 1
                 logger.exception("Failed storing quota information for FS %s", key)
     except Exception:
         logger.exception("Failure obtaining %s quota", backend)
-        opts.critical("Failure to obtain %s quota information" % backend)
+        opts.critical(f"Failure to obtain {backend} quota information")
 
-    opts.epilogue("Logged %s quota" % backend, stats)
+    opts.epilogue(f"Logged {backend} quota", stats)
 
 if __name__ == '__main__':
     main()
