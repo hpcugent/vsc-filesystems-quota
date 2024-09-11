@@ -40,7 +40,7 @@ import time
 from collections import namedtuple
 
 from vsc.config.base import {
-    VscStorage, GENT, INSTITUTE_ADMIN_EMAIL, INSTITUTE_ADMIN_SENDER_EMAIL, INSTITUTE_ADMIN_REPLY_TO_EMAIL
+    VscStorage, GENT, INSTITUTE_ADMIN_EMAIL, INSTITUTE_ADMIN_SENDER_EMAIL
     }
 from vsc.filesystem.operator import StorageOperator
 from vsc.utils.mail import VscMail
@@ -97,7 +97,7 @@ class InodeLog(CLI):
             mail.sendTextMail(
                 mail_to=INSTITUTE_ADMIN_EMAIL[host_institute],
                 mail_from=INSTITUTE_ADMIN_SENDER_EMAIL.get(host_institute, INSTITUTE_ADMIN_EMAIL[host_institute]),
-                reply_to=INSTITUTE_ADMIN_REPLY_TO_EMAIL[host_institute]['user'],
+                reply_to=INSTITUTE_ADMIN_REPLY_TO_EMAIL_USER.get([host_institute],  INSTITUTE_ADMIN_EMAIL[host_institute]),
                 mail_subject="Inode space(s) running out on %s" % (socket.gethostname()),
                 message=message
             )
