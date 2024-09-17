@@ -39,9 +39,9 @@ import time
 
 from collections import namedtuple
 
-from vsc.config.base import {
+from vsc.config.base import (
     VscStorage, GENT, INSTITUTE_ADMIN_EMAIL, INSTITUTE_ADMIN_SENDER_EMAIL
-    }
+)
 from vsc.filesystem.operator import StorageOperator
 from vsc.utils.mail import VscMail
 from vsc.utils.script_tools import CLI
