@@ -97,7 +97,7 @@ class InodeLog(CLI):
             mail.sendTextMail(
                 mail_to=INSTITUTE_ADMIN_EMAIL[host_institute],
                 mail_from=INSTITUTE_ADMIN_SENDER_EMAIL.get(host_institute, INSTITUTE_ADMIN_EMAIL[host_institute]),
-                reply_to="hpc@ugent.be",
+                reply_to=INSTITUTE_ADMIN_EMAIL[host_institute],
                 mail_subject=f"Inode space(s) running out on {socket.gethostname()}",
                 message=message
             )
