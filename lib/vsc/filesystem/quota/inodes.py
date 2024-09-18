@@ -1,5 +1,5 @@
 #
-# Copyright 2015-2023 Ghent University
+# Copyright 2015-2024 Ghent University
 #
 # This file is part of vsc-filesystems-quota,
 # originally created by the HPC team of Ghent University (http://ugent.be/hpc/en),
@@ -39,7 +39,9 @@ import time
 
 from collections import namedtuple
 
-from vsc.config.base import VscStorage, GENT, INSTITUTE_ADMIN_EMAIL
+from vsc.config.base import (
+    VscStorage, GENT, INSTITUTE_ADMIN_EMAIL, INSTITUTE_ADMIN_SENDER_EMAIL
+)
 from vsc.filesystem.operator import StorageOperator
 from vsc.utils.mail import VscMail
 from vsc.utils.script_tools import CLI
@@ -92,11 +94,13 @@ class InodeLog(CLI):
         if dry_run:
             logging.info("Would have sent this message: %s", message)
         else:
-            mail.sendTextMail(mail_to=INSTITUTE_ADMIN_EMAIL[host_institute],
-                            mail_from=INSTITUTE_ADMIN_EMAIL[host_institute],
-                            reply_to=INSTITUTE_ADMIN_EMAIL[host_institute],
-                            mail_subject=f"Inode space(s) running out on {socket.gethostname()}",
-                            message=message)
+            mail.sendTextMail(
+                mail_to=INSTITUTE_ADMIN_EMAIL[host_institute],
+                mail_from=INSTITUTE_ADMIN_SENDER_EMAIL.get(host_institute, INSTITUTE_ADMIN_EMAIL[host_institute]),
+                reply_to=INSTITUTE_ADMIN_EMAIL[host_institute],
+                mail_subject=f"Inode space(s) running out on {socket.gethostname()}",
+                message=message
+            )
 
 
     def do(self, dry_run):
