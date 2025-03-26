@@ -43,7 +43,7 @@ from vsc.utils.script_tools import CLI
 
 from vsc.filesystem.gpfs import GpfsOperations
 from vsc.filesystem.lustre import LustreOperations
-from vsc.config.base import GENT, INSTITUTE_ADMIN_EMAIL
+from vsc.config.base import GENT, INSTITUTE_ADMIN_EMAIL, INSTITUTE_SUPPORT_EMAIL
 from vsc.utils.mail import VscMail
 
 NAGIOS_CHECK_INTERVAL_THRESHOLD = (6 * 60 + 5) * 60  # 365 minutes -- little over 6 hours.
@@ -120,7 +120,7 @@ class InodeLog(CLI):
         if dry_run:
             logging.info("Would have sent this message: %s", message)
         else:
-            mail.sendTextMail(mail_to=INSTITUTE_ADMIN_EMAIL[host_institute],
+            mail.sendTextMail(mail_to=INSTITUTE_SUPPORT_EMAIL[host_institute],
                             mail_from=INSTITUTE_ADMIN_EMAIL[host_institute],
                             reply_to=INSTITUTE_ADMIN_EMAIL[host_institute],
                             mail_subject=f"Inode space(s) running out on {socket.gethostname()}",
@@ -181,4 +181,3 @@ class InodeLog(CLI):
                 dry_run=self.options.dry_run,
                 host_institute=self.options.host_institute
             )
-
