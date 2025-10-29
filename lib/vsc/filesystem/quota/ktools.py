@@ -365,7 +365,10 @@ class UsageReporter(ConsumerCLI):
         block_expired = determine_grace_period(usage.block_expired)
         files_expired = determine_grace_period(usage.files_expired)
 
-        replication_factor = self.replication_factors[usage.filesystem]
+        try:
+            replication_factor = self.replication_factors[usage.filesystem]
+        except KeyError:
+            return None
 
         # TODO: check if we should address the inode usage in relation to the replication factor (ideally: no)
         usage = usage._replace(
