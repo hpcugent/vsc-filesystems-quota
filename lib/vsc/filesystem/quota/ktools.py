@@ -365,7 +365,13 @@ class UsageReporter(ConsumerCLI):
         block_expired = determine_grace_period(usage.block_expired)
         files_expired = determine_grace_period(usage.files_expired)
 
-        replication_factor = self.replication_factors[usage.filesystem]
+        # when the filesystem gpfsbeat looked at is not actually something that is in the
+        # config file, we shoud ignore it
+        try:
+            replication_factor = self.replication_factors[usage.filesystem]
+        except KeyError:
+            logging.warning(f"Skipping usage for filesystem {usage.filesystem}")
+            return None
 
         # TODO: check if we should address the inode usage in relation to the replication factor (ideally: no)
         usage = usage._replace(
