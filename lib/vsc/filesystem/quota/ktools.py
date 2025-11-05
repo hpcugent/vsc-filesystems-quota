@@ -274,7 +274,7 @@ class UsageReporter(ConsumerCLI):
     def do(self, dry_run):
         # pylint: disable=unused-argument
 
-        ap_client = AccountpageClient(token=self.options.access_token)
+        ap_client = AccountpageClient(token=self.options.access_token, url=self.options.account_page_url)
 
         self.storage = VscStorage()
         self.system_storage_map = {k: self.storage[GENT][k].filesystem for k in self.storage if k != GENT}
