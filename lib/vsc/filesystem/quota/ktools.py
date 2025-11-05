@@ -30,7 +30,6 @@ Helper functions for all things quota related.
 @author: Ward Poelmans (Vrije Universiteit Brussel)
 """
 
-
 import json
 import logging
 import re
@@ -40,29 +39,29 @@ from collections import namedtuple
 from vsc.kafka.cli import ConsumerCLI
 
 from vsc.accountpage.client import AccountpageClient
-from vsc.config.base import (
-    GENT, STORAGE_SHARED_SUFFIX, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE,
-    VscStorage
-)
+from vsc.config.base import GENT, STORAGE_SHARED_SUFFIX, VO_PREFIX_BY_SITE, VO_SHARED_PREFIX_BY_SITE, VscStorage
 
 DISK_CACHE_LOCATION = "/var/cache/kusage.cache"
 
-UsageInformation = namedtuple('UsageInformation', [
-    'filesystem', # filesystem name
-    'fileset', # fileset (gpfs)
-    'entity', # the user or VO owning the usage
-    'kind', # the kind of usage info (USR, FILESET, GROUP)
-    'block_usage',  # used quota in KiB
-    'block_soft',  # soft quota limit in KiB
-    'block_hard',  # hard quota limit in KiB
-    'block_doubt',  # the KiB GPFS is not sure about
-    'block_expired',  # tuple (boolean, grace period expressed in seconds)
-    'files_usage',  # used number of inodes
-    'files_soft',  # soft limit for inodes
-    'files_hard',  # hard limit for inodes
-    'files_doubt',  # the inodes GPFS is not sure about
-    'files_expired',  # tuple (boolean, grace period expressed in seconds)
-])
+UsageInformation = namedtuple(
+    "UsageInformation",
+    [
+        "filesystem",  # filesystem name
+        "fileset",  # fileset (gpfs)
+        "entity",  # the user or VO owning the usage
+        "kind",  # the kind of usage info (USR, FILESET, GROUP)
+        "block_usage",  # used quota in KiB
+        "block_soft",  # soft quota limit in KiB
+        "block_hard",  # hard quota limit in KiB
+        "block_doubt",  # the KiB GPFS is not sure about
+        "block_expired",  # tuple (boolean, grace period expressed in seconds)
+        "files_usage",  # used number of inodes
+        "files_soft",  # soft limit for inodes
+        "files_hard",  # hard limit for inodes
+        "files_doubt",  # the inodes GPFS is not sure about
+        "files_expired",  # tuple (boolean, grace period expressed in seconds)
+    ],
+)
 
 GPFS_GRACE_REGEX = re.compile(
     r"(?P<days>\d+)\s*days?|(?P<hours>\d+)\s*hours?|(?P<minutes>\d+)\s*minutes?|(?P<expired>expired)"
@@ -70,8 +69,8 @@ GPFS_GRACE_REGEX = re.compile(
 
 GPFS_NOGRACE_REGEX = re.compile(r"none", re.I)
 
-QUOTA_USER_KIND = 'USR'
-QUOTA_VO_KIND = 'FILESET'
+QUOTA_USER_KIND = "USR"
+QUOTA_VO_KIND = "FILESET"
 
 
 class QuotaException(Exception):
@@ -88,15 +87,9 @@ class DjangoPusher:
         self.kind = kind
         self.dry_run = dry_run
 
-        self.count = {
-            self.storage_name: 0,
-            self.storage_name_shared: 0
-        }
+        self.count = {self.storage_name: 0, self.storage_name_shared: 0}
 
-        self.payload = {
-            self.storage_name: [],
-            self.storage_name_shared: []
-        }
+        self.payload = {self.storage_name: [], self.storage_name_shared: []}
 
     def __enter__(self):
         return self
@@ -153,9 +146,9 @@ class DjangoPusher:
         logging.debug("Pushing quota %s with params %s", quota, params)
 
         if self.kind == QUOTA_USER_KIND:
-            params['user'] = owner
+            params["user"] = owner
         elif self.kind == QUOTA_VO_KIND:
-            params['vo'] = owner
+            params["vo"] = owner
 
         if shared:
             self.push(self.storage_name_shared, params)
@@ -186,13 +179,12 @@ class DjangoPusher:
 
 
 class UsageReporter(ConsumerCLI):
-
     CLI_OPTIONS = {
-        'storage': ('the VSC filesystems that are checked by this script', None, 'extend', []),
-        'account_page_url': ('Base URL of the account page', None, 'store', 'https://account.vscentrum.be/django'),
-        'access_token': ('OAuth2 token to access the account page REST API', None, 'store', None),
-        'host_institute': ('Name of the institute where this script is being run', str, 'store', GENT),
-        'group': ("Kafka consumer group", None, "store", "ap-quota"),
+        "storage": ("the VSC filesystems that are checked by this script", None, "extend", []),
+        "account_page_url": ("Base URL of the account page", None, "store", "https://account.vscentrum.be/django"),
+        "access_token": ("OAuth2 token to access the account page REST API", None, "store", None),
+        "host_institute": ("Name of the institute where this script is being run", str, "store", GENT),
+        "group": ("Kafka consumer group", None, "store", "ap-quota"),
     }
 
     def convert_msg(self, msg):
@@ -250,8 +242,8 @@ class UsageReporter(ConsumerCLI):
                 logging.error("Failed to load as JSON: %s", value)
                 return None
 
-            if 'quota' in event:
-                kwargs = {field: event['quota'][field] for field in UsageInformation._fields}
+            if "quota" in event:
+                kwargs = {field: event["quota"][field] for field in UsageInformation._fields}
                 return self._update_usage(UsageInformation(**kwargs))
             else:
                 return None
@@ -260,7 +252,6 @@ class UsageReporter(ConsumerCLI):
             return None
 
     def process_event(self, event, dry_run):
-
         if event and event.filesystem in self.system_storage_map.values():
             cache_key = (event.filesystem, event.fileset, event.entity, event.kind)
             cached_usage = self.cache.get(cache_key, default=None)
@@ -274,17 +265,17 @@ class UsageReporter(ConsumerCLI):
     def do(self, dry_run):
         # pylint: disable=unused-argument
 
-        ap_client = AccountpageClient(token=self.options.access_token)
+        ap_client = AccountpageClient(token=self.options.access_token, url=self.options.account_page_url)
 
         self.storage = VscStorage()
         self.system_storage_map = {k: self.storage[GENT][k].filesystem for k in self.storage if k != GENT}
         self.replication_factors = {
             self.storage[GENT][k].filesystem: self.storage[GENT][k].data_replication_factor
-            for k in self.storage if k != GENT
+            for k in self.storage
+            if k != GENT
         }
 
-
-        logging.info("storage map: %s", self.system_storage_map )
+        logging.info("storage map: %s", self.system_storage_map)
 
         self.usage_list = []
         with dc.Cache(DISK_CACHE_LOCATION) as cache:
@@ -292,24 +283,22 @@ class UsageReporter(ConsumerCLI):
             super().do(dry_run)
 
         for storage_name in self.options.storage:
-
             logging.info("Processing quota for storage_name %s", storage_name)
             fileset_quota_data = [
-                q for q in self.usage_list
-                if self.system_storage_map[storage_name] == q.filesystem and q.kind == 'FILESET'
+                q
+                for q in self.usage_list
+                if self.system_storage_map[storage_name] == q.filesystem and q.kind == "FILESET"
             ]
             logging.debug("Fileset quota for storage %s: %s", storage_name, fileset_quota_data)
             self.process_fileset_quota(storage_name, fileset_quota_data, ap_client)
 
             usr_quota_data = [
-                q for q in self.usage_list
-                if self.system_storage_map[storage_name] == q.filesystem and q.kind == 'USR'
+                q for q in self.usage_list if self.system_storage_map[storage_name] == q.filesystem and q.kind == "USR"
             ]
             logging.debug("Usr quota for storage %s: %s", storage_name, usr_quota_data)
             self.process_user_quota(storage_name, usr_quota_data, ap_client)
 
     def process_user_quota(self, storage_name, quota_list, client):
-
         institute = self.options.host_institute
         path_template = self.storage.path_templates[institute][storage_name]
 
@@ -318,24 +307,21 @@ class UsageReporter(ConsumerCLI):
 
         with DjangoPusher(storage_name, client, QUOTA_USER_KIND, self.options.dry_run) as pusher:
             for quota in quota_list:
-
-
-                if not quota.entity.startswith('vsc'):
+                if not quota.entity.startswith("vsc"):
                     # no longer a known user, we got the numerical UID, so no need to push info
                     continue
 
                 user_name = quota.entity
-                fileset_name = path_template['user'](user_name)[1]
+                fileset_name = path_template["user"](user_name)[1]
                 fileset_re = (
-                    rf'^(vsc[1-4]|{VO_PREFIX_BY_SITE[institute]}|'
-                    rf'{VO_SHARED_PREFIX_BY_SITE[institute]}|{fileset_name})'
+                    rf"^(vsc[1-4]|{VO_PREFIX_BY_SITE[institute]}|"
+                    rf"{VO_SHARED_PREFIX_BY_SITE[institute]}|{fileset_name})"
                 )
 
                 if re.search(fileset_re, quota.fileset):
                     pusher.push_quota(user_name, quota)
 
     def process_fileset_quota(self, storage_name, quota_list, client):
-
         logging.info("Logging VO quota to account page")
         logging.debug("Considering the following quota items for pushing: %s", quota_list)
 
@@ -401,17 +387,16 @@ def determine_grace_period(grace_string):
     elif grace:
         grace = grace.groupdict()
         grace_time = 0
-        if grace['days']:
-            grace_time = int(grace['days']) * 86400
-        elif grace['hours']:
-            grace_time = int(grace['hours']) * 3600
-        elif grace['minutes']:
-            grace_time = int(grace['minutes']) * 60
-        elif grace['expired']:
+        if grace["days"]:
+            grace_time = int(grace["days"]) * 86400
+        elif grace["hours"]:
+            grace_time = int(grace["hours"]) * 3600
+        elif grace["minutes"]:
+            grace_time = int(grace["minutes"]) * 60
+        elif grace["expired"]:
             grace_time = 0
         else:
-            logging.error("Unprocessed grace groupdict %s (from string %s).",
-                          grace, grace_string)
+            logging.error("Unprocessed grace groupdict %s (from string %s).", grace, grace_string)
             raise QuotaException("Cannot process grace time string")
         expired = (True, grace_time)
     else:
