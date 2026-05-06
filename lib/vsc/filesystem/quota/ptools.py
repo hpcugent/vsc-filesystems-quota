@@ -174,15 +174,17 @@ class UsageReporter(CLI):
         results = []
         for (fs, fileset, entity, kind), data in grouped.items():
             f = data["fields"]
+
+            # the gpfs exporter provides data in bytes, as opposed to blocks
             usage = UsageInformation(
                 filesystem=fs,
                 fileset=fileset,
                 entity=entity,
                 kind=kind,
-                block_usage=f.get("block_usage", 0.0),
-                block_soft=f.get("block_soft", 0.0),
-                block_hard=f.get("block_hard", 0.0),
-                block_doubt=f.get("block_doubt", 0.0),
+                block_usage=f.get("block_usage", 0.0) / 1024,
+                block_soft=f.get("block_soft", 0.0) / 1024,
+                block_hard=f.get("block_hard", 0.0) / 1024,
+                block_doubt=f.get("block_doubt", 0.0) / 1024,
                 block_expired=(False, 0),
                 files_usage=f.get("files_usage", 0.0),
                 files_soft=f.get("files_soft", 0.0),

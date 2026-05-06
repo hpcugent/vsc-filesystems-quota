@@ -146,7 +146,7 @@ class TestConsolidate(TestCase):
         results = reporter.consolidate(entries)
         assert len(results) == 1
         assert results[0].files_usage == 100
-        assert results[0].block_usage == 2048
+        assert results[0].block_usage == 2
 
 
 
